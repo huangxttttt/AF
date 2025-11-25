@@ -217,26 +217,28 @@ chrome.action.onClicked.addListener((tab) => {
 		  // 你可以改成 el.innerHTML
 		  const html = el.outerHTML;
 		  const locator = getCssSelector(el);
-
+		  
 		  console.log("选中元素 CSS：", locator);
 
 		  // ======= ⬇️ 展示 HTML 到 overlay 面板中（新增） =======
-		  let pre = document.getElementById("random-demo-selected-pre");
-		  if (!pre) {
-			pre = document.createElement("pre");
-			pre.id = "random-demo-selected-pre";
-			pre.style.whiteSpace = "pre-wrap";
-			pre.style.textAlign = "left";
-			pre.style.padding = "8px";
-			pre.style.background = "#f8f8f8";
-			pre.style.borderRadius = "6px";
-			pre.style.maxHeight = "200px";
-			pre.style.overflow = "auto";
-			pre.style.fontSize = "12px";
-			overlay.appendChild(pre);      // 加到 panel 最下方
-		  }
+		const box = document.getElementById("random-demo-box");
+		let pre = document.getElementById("random-demo-body-pre");
+		if (!pre) {
+		  pre = document.createElement("pre");
+		  pre.id = "random-demo-body-pre";
+		  pre.style.whiteSpace = "pre-wrap";
+		  pre.style.textAlign = "left";
+		  pre.style.padding = "8px";
+		  pre.style.background = "#f0f0f0";
+		  pre.style.borderRadius = "6px";
+		  pre.style.maxHeight = "200px";
+		  pre.style.overflow = "auto";
+		  pre.style.fontSize = "11px";
 		  pre.textContent = html;
-
+		  box.appendChild(pre);
+		} else {
+		  pre.textContent = html;
+		}
 		  // ======= 上传选中块 =======
 		  uploadHtml({
 			html,
@@ -405,6 +407,7 @@ chrome.action.onClicked.addListener((tab) => {
 
 		// ==== 内容区域 ====
 		const box = document.createElement("div");
+		box.id = "random-demo-box";
 		box.style.padding = "10px 12px";
 		box.style.overflow = "auto";
 		box.style.maxHeight = "calc(70vh - 40px)"; // 扣掉头部高度
@@ -412,7 +415,7 @@ chrome.action.onClicked.addListener((tab) => {
 		const textEl = document.createElement("div");
 		textEl.id = "random-demo-text";
 		textEl.style.marginBottom = "10px";
-		textEl.style.fontSize = "14px";
+		textEl.style.fontSize = "15px";
 		textEl.style.color = "#333";
 		box.appendChild(textEl);
 
@@ -574,7 +577,7 @@ chrome.action.onClicked.addListener((tab) => {
 		// 每次点击图标：重新开始自动切换
 		clearOldTimer();
 		setRandomMessage();
-		window.__random_demo_timer = setInterval(setRandomMessage, 2000);
+		window.__random_demo_timer = setInterval(setRandomMessage, 3000);
 
       // ===== 页面环境里的代码结束 =====
     },
