@@ -3,7 +3,7 @@
   "name": "暗访者",
   "version": "1.0",
   "description": "Click toolbar icon to show random text and send body HTML to backend.",
-  "permissions": ["scripting", "activeTab","tabs"],
+  "permissions": ["scripting", "activeTab","tabs","storage"],
   "host_permissions": [
     "https://your-api.example.com/*"
   ],

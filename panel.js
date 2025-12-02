@@ -1,25 +1,15 @@
 // panel.js：运行在页面里的脚本，负责小面板 UI + 选区等
+
 (() => {
-  // 以前在 background 里的 messages，移到这里来
+  // ================== 文案 & 基本变量 ==================
   const messages = [
     "今天也是充满希望的一天！",
     "别放弃，你比自己想象得更厉害！",
     "保持微笑，生活会对你更温柔。",
     "世界那么大，开心一点不亏！",
-    "越自律，越自由！"
+    "越自律，越自由！",
   ];
 
-  // ======== 全局状态变量（本脚本内部） ========
-  let detectedImages = [];
-  let detectedTables = [];
-
-  let selecting = false;        // 是否正在选择模式
-  let lastHighlighted = null;   // 当前高亮元素
-  let selectionTip = null;      // 顶部提示条
-  let selectionStyle = null;    // 注入的样式
-  let overlay = document.getElementById("random-demo-overlay");
-
-  // ================== 定时器 / 随机文案 ==================
   function clearOldTimer() {
     if (window.__random_demo_timer) {
       clearInterval(window.__random_demo_timer);
@@ -35,7 +25,7 @@
     }
   }
 
-  // ================== 上传到后台 ==================
+  // ====== 上传函数 ======
   function uploadHtml({ html, locator = "", selectionType = "body" }) {
     const statusBar = document.getElementById("random-demo-status-bar");
     if (statusBar) {
@@ -48,7 +38,7 @@
         type: "UPLOAD_BODY_HTML",
         bodyHtml: html,
         locator,
-        selectionType
+        selectionType,
       },
       (resp) => {
         console.log("上传结果：", resp);
@@ -57,17 +47,28 @@
         if (!bar) return;
 
         if (resp && resp.ok) {
-          bar.style.color = "#16a34a"; // 绿色
+          bar.style.color = "#16a34a";
           bar.textContent = "上传成功 ✓";
         } else {
-          bar.style.color = "#dc2626"; // 红色
+          bar.style.color = "#dc2626";
           bar.textContent = "上传失败：" + (resp?.error || "未知错误");
         }
       }
     );
   }
 
-  // ================== 工具函数：在面板里显示文本 ==================
+  // ====== 当前页图片/表格缓存 ======
+  let detectedImages = [];
+  let detectedTables = [];
+
+  // ====== 选区高亮相关 ======
+  let selecting = false;
+  let lastHighlighted = null;
+  let selectionTip = null;
+  let selectionStyle = null;
+  let overlay = document.getElementById("random-demo-overlay");
+
+  // ================== 工具函数：显示文本区域 ==================
   function showTextInPanel(text) {
     const box = document.getElementById("random-demo-box");
     if (!box) return;
@@ -92,7 +93,7 @@
     pre.textContent = text;
   }
 
-  // ================== 生成 CSS 选择器 ==================
+  // 生成简单 CSS 选择器
   function getCssSelector(el) {
     if (!(el instanceof Element)) return "";
     const path = [];
@@ -126,7 +127,7 @@
     return path.join(" > ");
   }
 
-  // ================== 选区高亮 & 自由选择相关 ==================
+  // ================== 高亮逻辑 ==================
   function ensureHighlightStyle() {
     if (!selectionStyle) {
       selectionStyle = document.createElement("style");
@@ -143,7 +144,6 @@
 
   function highlightElement(el) {
     if (lastHighlighted === el) return;
-
     if (lastHighlighted) {
       lastHighlighted.classList.remove("__llm_block_highlight");
     }
@@ -163,7 +163,6 @@
   function handleMouseOver(e) {
     if (!selecting) return;
     const target = e.target;
-    // 不高亮我们自己的 overlay 和提示条
     if (overlay && overlay.contains(target)) return;
     if (selectionTip && selectionTip.contains(target)) return;
     highlightElement(target);
@@ -173,7 +172,6 @@
     if (!selecting) return;
     const target = e.target;
 
-    // 避免点击到我们自己的 panel
     if (overlay && overlay.contains(target)) return;
     if (selectionTip && selectionTip.contains(target)) return;
 
@@ -186,17 +184,19 @@
 
     console.log("选中元素 CSS：", locator);
 
-    // 展示 HTML 到 overlay 面板中
     showTextInPanel(html);
-
-    // 上传选中块
+	
+	// ⭐ 自动把 selector 写到输入框里，方便保存规则
+	if (window.__panel_locator_input) {
+	  window.__panel_locator_input.value = locator;
+	}
+	
     uploadHtml({
       html,
       locator,
-      selectionType: "element"
+      selectionType: "element",
     });
 
-    // 恢复 panel（显示）
     stopSelectionMode(true);
   }
 
@@ -212,18 +212,16 @@
     if (selecting) return;
     selecting = true;
 
-    // 隐藏弹窗，让用户可以点到页面元素
     if (overlay) {
       overlay.style.display = "none";
     }
 
-    // 注入高亮样式
     ensureHighlightStyle();
 
-    // 顶部提示条
     if (!selectionTip) {
       selectionTip = document.createElement("div");
-      selectionTip.textContent = "选择模式：鼠标移动高亮元素，点击选择该区域，按 ESC 取消";
+      selectionTip.textContent =
+        "选择模式：鼠标移动高亮元素，点击选择该区域，按 ESC 取消";
       selectionTip.style.position = "fixed";
       selectionTip.style.top = "0";
       selectionTip.style.left = "0";
@@ -266,7 +264,6 @@
     }
   }
 
-  // 根据 locator 选择器高亮元素
   function highlightByLocator(locator) {
     const trimmed = (locator || "").trim();
     if (!trimmed) {
@@ -292,7 +289,7 @@
     }
 
     highlightElement(el);
-    // 把元素滚动到视图中间
+
     try {
       el.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {
@@ -300,28 +297,24 @@
     }
   }
 
-  // ================== 自动统计图片 / 表格并渲染到面板 ==================
+  // ================== 本页结构分析 ==================
   function detectAndRenderSummary() {
-    // 收集图片（过滤掉太小的图标）
     detectedImages = [];
     const imgs = Array.from(document.images || []);
     imgs.forEach((img) => {
       const rect = img.getBoundingClientRect();
       const w = rect.width || img.naturalWidth || img.width;
       const h = rect.height || img.naturalHeight || img.height;
-
-      if (w < 40 || h < 40) return; // 过滤小图标
-
+      if (w < 40 || h < 40) return;
       detectedImages.push({
         src: img.src,
         alt: img.alt || "",
         width: Math.round(w),
         height: Math.round(h),
-        locator: getCssSelector(img)
+        locator: getCssSelector(img),
       });
     });
 
-    // 收集表格
     detectedTables = [];
     const tables = Array.from(document.querySelectorAll("table"));
     tables.forEach((table) => {
@@ -329,23 +322,19 @@
       if (rows.length === 0) return;
 
       const data = rows.map((row) =>
-        Array.from(row.cells || []).map((cell) =>
-          (cell.innerText || "").trim()
-        )
+        Array.from(row.cells || []).map((cell) => (cell.innerText || "").trim())
       );
 
-      // 非常小的 1x1 表可以按需过滤
       if (data.length <= 1 && data[0] && data[0].length <= 1) return;
 
       detectedTables.push({
         locator: getCssSelector(table),
         rowCount: data.length,
         colCount: data[0]?.length || 0,
-        data
+        data,
       });
     });
 
-    // 在面板中渲染
     const box = document.getElementById("random-demo-box");
     if (!box) return;
 
@@ -372,7 +361,6 @@
       summaryEl.innerHTML = "";
     }
 
-    // ⭐ 标题
     const titleRow = document.createElement("div");
     titleRow.textContent = "本页结构分析";
     titleRow.style.fontSize = "12px";
@@ -499,7 +487,7 @@
             url: location.href,
             detectedAt: new Date().toISOString(),
             type: "images",
-            images: detectedImages
+            images: detectedImages,
           };
           selectionType = "detected-images";
         } else {
@@ -511,7 +499,7 @@
             url: location.href,
             detectedAt: new Date().toISOString(),
             type: "tables",
-            tables: detectedTables
+            tables: detectedTables,
           };
           selectionType = "detected-tables";
         }
@@ -520,7 +508,7 @@
         uploadHtml({
           html: JSON.stringify(payload),
           locator: "",
-          selectionType
+          selectionType,
         });
       });
 
@@ -537,12 +525,10 @@
     summaryEl.appendChild(createRow("表格", "tables"));
   }
 
-  // ================== 创建面板 overlay + 页签 ==================
+  // ================== 创建 overlay & Tabs ==================
   if (!overlay) {
     overlay = document.createElement("div");
     overlay.id = "random-demo-overlay";
-
-    // 小面板本身
     overlay.style.position = "fixed";
     overlay.style.right = "24px";
     overlay.style.bottom = "24px";
@@ -561,7 +547,7 @@
     overlay.style.flexDirection = "column";
     overlay.style.backdropFilter = "blur(10px)";
 
-    // ==== 拖动区域（标题栏）====
+    // header
     const header = document.createElement("div");
     header.style.cursor = "move";
     header.style.padding = "8px 14px";
@@ -608,7 +594,7 @@
     header.appendChild(miniClose);
     overlay.appendChild(header);
 
-    // ========= 菜单栏式 Tab（在标题下方） =========
+    // Tab bar
     const tabBar = document.createElement("div");
     tabBar.style.display = "flex";
     tabBar.style.alignItems = "stretch";
@@ -616,6 +602,7 @@
     tabBar.style.padding = "0 12px";
     tabBar.style.borderBottom = "1px solid #e5e7eb";
     tabBar.style.background = "#f9fafb";
+    overlay.appendChild(tabBar);
 
     function createTabItem(text, tabName, isActive) {
       const item = document.createElement("div");
@@ -651,28 +638,24 @@
       return item;
     }
 
-    // tab1：现有功能
-    const tabMain = createTabItem("元素获取", "main", true);
-    // tab2：预留页
+    const tabMain = createTabItem("当前页", "main", true);
     const tabExtra = createTabItem("自动巡检", "extra", false);
-
     tabBar.appendChild(tabMain);
     tabBar.appendChild(tabExtra);
-    overlay.appendChild(tabBar);
 
-    // ========= 内容区域容器 =========
+    // 内容区域 wrapper
     const contentWrapper = document.createElement("div");
     contentWrapper.style.flex = "1";
     contentWrapper.style.overflow = "hidden";
+    overlay.appendChild(contentWrapper);
 
-    // ==== Tab1 内容：原来的 random-demo-box ====
+    // ========== Tab1：当前页 ==========
     const box = document.createElement("div");
     box.id = "random-demo-box";
     box.style.padding = "10px 12px 8px 12px";
     box.style.overflow = "auto";
     box.style.maxHeight = "calc(70vh - 70px)";
 
-    // 随机文案
     const textEl = document.createElement("div");
     textEl.id = "random-demo-text";
     textEl.style.marginBottom = "8px";
@@ -682,10 +665,10 @@
     textEl.style.lineHeight = "1.5";
     box.appendChild(textEl);
 
-    // locator 输入 + 高亮按钮
+    // locator + 高亮 + 保存规则
     const locatorWrap = document.createElement("div");
     locatorWrap.style.display = "flex";
-    locatorWrap.style.gap = "8px";
+    locatorWrap.style.gap = "6px";
     locatorWrap.style.marginBottom = "10px";
     locatorWrap.style.alignItems = "center";
 
@@ -713,7 +696,7 @@
 
     const locatorBtn = document.createElement("button");
     locatorBtn.textContent = "高亮";
-    locatorBtn.style.padding = "6px 12px";
+    locatorBtn.style.padding = "6px 10px";
     locatorBtn.style.cursor = "pointer";
     locatorBtn.style.borderRadius = "999px";
     locatorBtn.style.border = "1px solid #d1d5db";
@@ -731,9 +714,54 @@
       highlightByLocator(locatorInput.value);
     });
 
+    const saveRuleBtn = document.createElement("button");
+    saveRuleBtn.textContent = "保存规则";
+    saveRuleBtn.style.padding = "6px 10px";
+    saveRuleBtn.style.cursor = "pointer";
+    saveRuleBtn.style.borderRadius = "999px";
+    saveRuleBtn.style.border = "1px solid #2563eb";
+    saveRuleBtn.style.fontSize = "12px";
+    saveRuleBtn.style.background = "#2563eb";
+    saveRuleBtn.style.color = "#ffffff";
+
+    saveRuleBtn.addEventListener("mouseenter", () => {
+      saveRuleBtn.style.background = "#1d4ed8";
+    });
+    saveRuleBtn.addEventListener("mouseleave", () => {
+      saveRuleBtn.style.background = "#2563eb";
+    });
+
+    saveRuleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const selector = (locatorInput.value || "").trim();
+      if (!selector) {
+        alert("请先输入或生成一个 CSS 选择器再保存规则。");
+        return;
+      }
+      const name = prompt("给这个采集规则起个名字：", selector);
+      if (!name) return;
+
+      chrome.storage.sync.get({ crawlRules: [] }, (res) => {
+        const rules = res.crawlRules || [];
+        rules.push({
+          id: Date.now().toString(),
+          name,
+          selector,
+        });
+        chrome.storage.sync.set({ crawlRules: rules }, () => {
+          alert("规则已保存，可在“自动巡检”页签中使用。");
+        });
+      });
+    });
+
     locatorWrap.appendChild(locatorInput);
     locatorWrap.appendChild(locatorBtn);
+    locatorWrap.appendChild(saveRuleBtn);
     box.appendChild(locatorWrap);
+	
+	
+	// ⭐ 把 input 存到全局，方便别的函数使用
+	window.__panel_locator_input = locatorInput;
 
     // 按钮区域（上传整页 / 选择区域）
     const btnWrap = document.createElement("div");
@@ -788,172 +816,264 @@
     });
     btnWrap.appendChild(selectAreaBtn);
 
-    // ==== Tab2 内容：预留给新功能 ====
-// ==== Tab2 内容：自动巡检子页面 ====
-const extraBox = document.createElement("div");
-extraBox.id = "random-demo-box-extra";
-extraBox.style.padding = "10px 12px 8px 12px";
-extraBox.style.overflow = "auto";
-extraBox.style.maxHeight = "calc(70vh - 70px)";
-extraBox.style.display = "none"; // 默认隐藏
-
-// 标题
-const crawlTitle = document.createElement("div");
-crawlTitle.textContent = "自动巡检子页面";
-crawlTitle.style.fontSize = "14px";
-crawlTitle.style.fontWeight = "600";
-crawlTitle.style.color = "#111827";
-crawlTitle.style.marginBottom = "8px";
-extraBox.appendChild(crawlTitle);
-
-// 小说明
-const crawlDesc = document.createElement("div");
-crawlDesc.textContent = "说明：登录好当前系统后，在下面输入需要巡检的子页面 URL（每行一个），然后点击开始巡检。插件会依次打开这些页面并上传页面 HTML 到后端。";
-crawlDesc.style.fontSize = "12px";
-crawlDesc.style.color = "#4b5563";
-crawlDesc.style.lineHeight = "1.6";
-crawlDesc.style.marginBottom = "10px";
-extraBox.appendChild(crawlDesc);
-
-// 文本输入框
-const urlTextarea = document.createElement("textarea");
-urlTextarea.placeholder = "例如：\nhttps://xxx.com/page1\nhttps://xxx.com/page2\n/user/list\n/report/detail?id=1";
-urlTextarea.style.width = "100%";
-urlTextarea.style.minHeight = "120px";
-urlTextarea.style.padding = "8px 10px";
-urlTextarea.style.borderRadius = "10px";
-urlTextarea.style.border = "1px solid #e5e7eb";
-urlTextarea.style.fontSize = "12px";
-urlTextarea.style.fontFamily = "monospace";
-urlTextarea.style.boxSizing = "border-box";
-urlTextarea.style.marginBottom = "8px";
-extraBox.appendChild(urlTextarea);
-
-// 基础 URL（用于相对地址）
-const baseUrlWrap = document.createElement("div");
-baseUrlWrap.style.display = "flex";
-baseUrlWrap.style.alignItems = "center";
-baseUrlWrap.style.gap = "6px";
-baseUrlWrap.style.marginBottom = "8px";
-
-const baseUrlLabel = document.createElement("span");
-baseUrlLabel.textContent = "基础域名（可选）：";
-baseUrlLabel.style.fontSize = "12px";
-baseUrlLabel.style.color = "#4b5563";
-
-const baseUrlInput = document.createElement("input");
-baseUrlInput.type = "text";
-baseUrlInput.placeholder = "例如：https://xxx.com（不填则默认用当前页面域名）";
-baseUrlInput.style.flex = "1";
-baseUrlInput.style.padding = "6px 8px";
-baseUrlInput.style.borderRadius = "10px";
-baseUrlInput.style.border = "1px solid #e5e7eb";
-baseUrlInput.style.fontSize = "12px";
-baseUrlInput.style.outline = "none";
-baseUrlInput.style.background = "#f9fafb";
-
-baseUrlInput.addEventListener("focus", () => {
-  baseUrlInput.style.borderColor = "#2563eb";
-  baseUrlInput.style.boxShadow = "0 0 0 1px rgba(37,99,235,0.15)";
-  baseUrlInput.style.background = "#ffffff";
-});
-baseUrlInput.addEventListener("blur", () => {
-  baseUrlInput.style.borderColor = "#e5e7eb";
-  baseUrlInput.style.boxShadow = "none";
-  baseUrlInput.style.background = "#f9fafb";
-});
-
-baseUrlWrap.appendChild(baseUrlLabel);
-baseUrlWrap.appendChild(baseUrlInput);
-extraBox.appendChild(baseUrlWrap);
-
-// 按钮区域
-const crawlBtnRow = document.createElement("div");
-crawlBtnRow.style.display = "flex";
-crawlBtnRow.style.gap = "8px";
-crawlBtnRow.style.alignItems = "center";
-crawlBtnRow.style.marginTop = "4px";
-extraBox.appendChild(crawlBtnRow);
-
-const startCrawlBtn = document.createElement("button");
-startCrawlBtn.textContent = "开始巡检";
-startCrawlBtn.style.padding = "6px 12px";
-startCrawlBtn.style.cursor = "pointer";
-startCrawlBtn.style.borderRadius = "999px";
-startCrawlBtn.style.border = "1px solid #2563eb";
-startCrawlBtn.style.fontSize = "12px";
-startCrawlBtn.style.background = "#2563eb";
-startCrawlBtn.style.color = "#ffffff";
-startCrawlBtn.addEventListener("mouseenter", () => {
-  startCrawlBtn.style.background = "#1d4ed8";
-});
-startCrawlBtn.addEventListener("mouseleave", () => {
-  startCrawlBtn.style.background = "#2563eb";
-});
-
-const stopHint = document.createElement("span");
-stopHint.textContent = "巡检过程中你可以随时关闭面板，不影响登录状态。";
-stopHint.style.fontSize = "11px";
-stopHint.style.color = "#6b7280";
-
-crawlBtnRow.appendChild(startCrawlBtn);
-crawlBtnRow.appendChild(stopHint);
-
-// 点击开始巡检：整理 URL 列表，发给 background
-startCrawlBtn.addEventListener("click", (e) => {
-  e.stopPropagation();
-
-  const raw = urlTextarea.value || "";
-  const lines = raw
-    .split("\n")
-    .map((l) => l.trim())
-    .filter((l) => l.length > 0);
-
-  if (!lines.length) {
-    alert("请先在文本框中输入至少一个子页面 URL（每行一个）");
-    return;
-  }
-
-  const currentOrigin = location.origin; // https://域名:端口
-  const base = (baseUrlInput.value || "").trim() || currentOrigin;
-
-  // 把相对路径转成完整 URL
-  const fullUrls = lines.map((u) => {
-    if (u.startsWith("http://") || u.startsWith("https://")) {
-      return u;
-    }
-    // 简单拼接：确保有 /
-    if (u.startsWith("/")) {
-      return base.replace(/\/+$/, "") + u;
-    }
-    return base.replace(/\/+$/, "") + "/" + u;
-  });
-
-  console.log("准备自动巡检这些地址：", fullUrls);
-
-  chrome.runtime.sendMessage(
-    {
-      type: "AUTO_CRAWL_START",
-      urls: fullUrls
-    },
-    (resp) => {
-      console.log("AUTO_CRAWL_START resp:", resp);
-      if (!resp || !resp.ok) {
-        alert("启动自动巡检失败：" + (resp?.error || "未知错误"));
-      } else {
-        alert("已开始自动巡检，页面会依次跳转抓取并上传。");
-      }
-    }
-  );
-});
-
-
-    // 装进 wrapper 并挂到 overlay
     contentWrapper.appendChild(box);
-    contentWrapper.appendChild(extraBox);
-    overlay.appendChild(contentWrapper);
 
-    // ========= 切换 Tab =========
+    // ========== Tab2：自动巡检 ==========
+    const extraBox = document.createElement("div");
+    extraBox.id = "random-demo-box-extra";
+    extraBox.style.padding = "10px 12px 8px 12px";
+    extraBox.style.overflow = "auto";
+    extraBox.style.maxHeight = "calc(70vh - 70px)";
+    extraBox.style.display = "none";
+
+    const extraTitle = document.createElement("div");
+    extraTitle.textContent = "自动巡检（登录后批量采集子页面）";
+    extraTitle.style.fontSize = "13px";
+    extraTitle.style.fontWeight = "600";
+    extraTitle.style.color = "#111827";
+    extraTitle.style.marginBottom = "8px";
+    extraBox.appendChild(extraTitle);
+
+    // 规则选择
+    let currentRules = [];
+    const ruleRow = document.createElement("div");
+    ruleRow.style.display = "flex";
+    ruleRow.style.alignItems = "center";
+    ruleRow.style.gap = "6px";
+    ruleRow.style.marginBottom = "8px";
+
+    const ruleLabel = document.createElement("span");
+    ruleLabel.textContent = "采集规则：";
+    ruleLabel.style.fontSize = "12px";
+    ruleLabel.style.color = "#4b5563";
+
+    const ruleSelect = document.createElement("select");
+    ruleSelect.style.flex = "1";
+    ruleSelect.style.padding = "6px 8px";
+    ruleSelect.style.borderRadius = "10px";
+    ruleSelect.style.border = "1px solid #e5e7eb";
+    ruleSelect.style.fontSize = "12px";
+    ruleSelect.style.background = "#f9fafb";
+
+    const reloadRuleBtn = document.createElement("button");
+    reloadRuleBtn.textContent = "刷新规则";
+    reloadRuleBtn.style.padding = "6px 8px";
+    reloadRuleBtn.style.cursor = "pointer";
+    reloadRuleBtn.style.borderRadius = "999px";
+    reloadRuleBtn.style.border = "1px solid #d1d5db";
+    reloadRuleBtn.style.fontSize = "12px";
+    reloadRuleBtn.style.background = "#ffffff";
+    reloadRuleBtn.style.color = "#374151";
+
+    reloadRuleBtn.addEventListener("mouseenter", () => {
+      reloadRuleBtn.style.background = "#f3f4f6";
+    });
+    reloadRuleBtn.addEventListener("mouseleave", () => {
+      reloadRuleBtn.style.background = "#ffffff";
+    });
+
+    function loadRulesIntoSelect() {
+      chrome.storage.sync.get({ crawlRules: [] }, (res) => {
+        currentRules = res.crawlRules || [];
+        ruleSelect.innerHTML = "";
+
+        const emptyOpt = document.createElement("option");
+        emptyOpt.value = "";
+        emptyOpt.textContent = "（不使用规则，抓整页）";
+        ruleSelect.appendChild(emptyOpt);
+
+        currentRules.forEach((r) => {
+          const opt = document.createElement("option");
+          opt.value = r.id;
+          opt.textContent = r.name;
+          ruleSelect.appendChild(opt);
+        });
+      });
+    }
+
+    reloadRuleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      loadRulesIntoSelect();
+    });
+
+    ruleRow.appendChild(ruleLabel);
+    ruleRow.appendChild(ruleSelect);
+    ruleRow.appendChild(reloadRuleBtn);
+    extraBox.appendChild(ruleRow);
+
+    // 自定义 selector（可覆盖规则）
+    const selectorWrap = document.createElement("div");
+    selectorWrap.style.display = "flex";
+    selectorWrap.style.alignItems = "center";
+    selectorWrap.style.gap = "6px";
+    selectorWrap.style.marginBottom = "8px";
+
+    const selectorLabel = document.createElement("span");
+    selectorLabel.textContent = "自定义 CSS：";
+    selectorLabel.style.fontSize = "12px";
+    selectorLabel.style.color = "#4b5563";
+
+    const selectorInput = document.createElement("input");
+    selectorInput.type = "text";
+    selectorInput.placeholder = "可选，填了就优先用它（例如：.main-content）";
+    selectorInput.style.flex = "1";
+    selectorInput.style.padding = "6px 8px";
+    selectorInput.style.borderRadius = "10px";
+    selectorInput.style.border = "1px solid #e5e7eb";
+    selectorInput.style.fontSize = "12px";
+    selectorInput.style.background = "#f9fafb";
+
+    selectorInput.addEventListener("focus", () => {
+      selectorInput.style.borderColor = "#2563eb";
+      selectorInput.style.boxShadow = "0 0 0 1px rgba(37,99,235,0.15)";
+      selectorInput.style.background = "#ffffff";
+    });
+    selectorInput.addEventListener("blur", () => {
+      selectorInput.style.borderColor = "#e5e7eb";
+      selectorInput.style.boxShadow = "none";
+      selectorInput.style.background = "#f9fafb";
+    });
+
+    selectorWrap.appendChild(selectorLabel);
+    selectorWrap.appendChild(selectorInput);
+    extraBox.appendChild(selectorWrap);
+
+    // URL 文本框
+    const urlTextarea = document.createElement("textarea");
+    urlTextarea.placeholder = "每行一个子页面 URL，可以写完整地址，也可以是 /path 形式";
+    urlTextarea.style.width = "100%";
+    urlTextarea.style.minHeight = "120px";
+    urlTextarea.style.fontSize = "12px";
+    urlTextarea.style.fontFamily = "monospace";
+    urlTextarea.style.padding = "8px";
+    urlTextarea.style.borderRadius = "10px";
+    urlTextarea.style.border = "1px solid #e5e7eb";
+    urlTextarea.style.boxSizing = "border-box";
+    urlTextarea.style.marginBottom = "8px";
+    extraBox.appendChild(urlTextarea);
+
+    // base URL
+    const baseUrlWrap = document.createElement("div");
+    baseUrlWrap.style.display = "flex";
+    baseUrlWrap.style.alignItems = "center";
+    baseUrlWrap.style.gap = "6px";
+    baseUrlWrap.style.marginBottom = "8px";
+
+    const baseUrlLabel = document.createElement("span");
+    baseUrlLabel.textContent = "基础域名：";
+    baseUrlLabel.style.fontSize = "12px";
+    baseUrlLabel.style.color = "#4b5563";
+
+    const baseUrlInput = document.createElement("input");
+    baseUrlInput.type = "text";
+    baseUrlInput.placeholder = "默认用当前站点，例如 " + location.origin;
+    baseUrlInput.style.flex = "1";
+    baseUrlInput.style.padding = "6px 8px";
+    baseUrlInput.style.borderRadius = "10px";
+    baseUrlInput.style.border = "1px solid #e5e7eb";
+    baseUrlInput.style.fontSize = "12px";
+    baseUrlInput.style.background = "#f9fafb";
+
+    baseUrlWrap.appendChild(baseUrlLabel);
+    baseUrlWrap.appendChild(baseUrlInput);
+    extraBox.appendChild(baseUrlWrap);
+
+    // 按钮行
+    const crawlBtnRow = document.createElement("div");
+    crawlBtnRow.style.display = "flex";
+    crawlBtnRow.style.gap = "8px";
+    crawlBtnRow.style.alignItems = "center";
+    crawlBtnRow.style.marginTop = "4px";
+    extraBox.appendChild(crawlBtnRow);
+
+    const startCrawlBtn = document.createElement("button");
+    startCrawlBtn.textContent = "开始巡检并上传";
+    startCrawlBtn.style.padding = "6px 12px";
+    startCrawlBtn.style.cursor = "pointer";
+    startCrawlBtn.style.borderRadius = "999px";
+    startCrawlBtn.style.border = "1px solid #2563eb";
+    startCrawlBtn.style.fontSize = "12px";
+    startCrawlBtn.style.background = "#2563eb";
+    startCrawlBtn.style.color = "#ffffff";
+
+    startCrawlBtn.addEventListener("mouseenter", () => {
+      startCrawlBtn.style.background = "#1d4ed8";
+    });
+    startCrawlBtn.addEventListener("mouseleave", () => {
+      startCrawlBtn.style.background = "#2563eb";
+    });
+
+    startCrawlBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      const raw = urlTextarea.value || "";
+      const lines = raw
+        .split("\n")
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0);
+
+      if (!lines.length) {
+        alert("请先在文本框中输入至少一个子页面 URL（每行一个）");
+        return;
+      }
+
+      const currentOrigin = location.origin;
+      const base = (baseUrlInput.value || "").trim() || currentOrigin;
+
+      const fullUrls = lines.map((u) => {
+        if (u.startsWith("http://") || u.startsWith("https://")) {
+          return u;
+        }
+        if (u.startsWith("/")) {
+          return base.replace(/\/+$/, "") + u;
+        }
+        return base.replace(/\/+$/, "") + "/" + u;
+      });
+
+      // 优先使用自定义 selector，其次选规则
+      let selector = (selectorInput.value || "").trim();
+      if (!selector) {
+        const ruleId = ruleSelect.value;
+        if (ruleId) {
+          const found = currentRules.find((r) => r.id === ruleId);
+          if (found) {
+            selector = found.selector;
+          }
+        }
+      }
+
+      console.log(
+        "准备自动巡检这些地址：",
+        fullUrls,
+        "使用 selector：",
+        selector
+      );
+
+      chrome.runtime.sendMessage(
+        {
+          type: "AUTO_CRAWL_START",
+          urls: fullUrls,
+          cssSelector: selector,
+        },
+        (resp) => {
+          console.log("AUTO_CRAWL_START resp:", resp);
+          if (!resp || !resp.ok) {
+            alert("启动自动巡检失败：" + (resp?.error || "未知错误"));
+          } else {
+            alert(
+              "已开始自动巡检，扩展会在新标签页中依次打开子页面并上传数据。"
+            );
+          }
+        }
+      );
+    });
+
+    crawlBtnRow.appendChild(startCrawlBtn);
+    extraBox.appendChild(crawlBtnRow);
+
+    contentWrapper.appendChild(extraBox);
+
+    // tab 切换
     function switchTab(tabName) {
       const mainBox = document.getElementById("random-demo-box");
       const extraBox = document.getElementById("random-demo-box-extra");
@@ -974,6 +1094,7 @@ startCrawlBtn.addEventListener("click", (e) => {
       } else {
         mainBox.style.display = "none";
         extraBox.style.display = "block";
+        loadRulesIntoSelect(); // 打开自动巡检时刷新一次规则
       }
     }
 
@@ -986,7 +1107,7 @@ startCrawlBtn.addEventListener("click", (e) => {
       switchTab("extra");
     });
 
-    // ==== 上传状态提示栏 ====
+    // 状态栏
     const statusBar = document.createElement("div");
     statusBar.id = "random-demo-status-bar";
     statusBar.style.fontSize = "12px";
@@ -998,7 +1119,7 @@ startCrawlBtn.addEventListener("click", (e) => {
     statusBar.style.background = "#f9fafb";
     overlay.appendChild(statusBar);
 
-    // ==== 作者小字 =====
+    // 作者
     const author = document.createElement("div");
     author.textContent = "© 2025 by easymer's huangxiaotao";
     author.style.fontSize = "10px";
@@ -1009,7 +1130,7 @@ startCrawlBtn.addEventListener("click", (e) => {
 
     document.body.appendChild(overlay);
 
-    // ==== 实现拖动逻辑 ====
+    // 拖动逻辑
     let isDragging = false;
     let startX = 0;
     let startY = 0;
@@ -1044,11 +1165,9 @@ startCrawlBtn.addEventListener("click", (e) => {
     });
   }
 
-  // ================== 启动逻辑 ==================
+  // ================== 初始化：随机文案 + 结构分析 ==================
   clearOldTimer();
   setRandomMessage();
   window.__random_demo_timer = setInterval(setRandomMessage, 3000);
   detectAndRenderSummary();
-
-  // ===== 页面环境里的代码结束 =====
 })();
