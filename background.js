@@ -108,9 +108,135 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ ok: true });
     return false;
   }
-
+  
   return false;
 });
+
+// ================== AI 总结：流式端口监听 ==================
+chrome.runtime.onConnect.addListener((port) => {
+  // 只处理我们定义的 ai-stream 端口
+  if (port.name !== "ai-stream") return;
+
+  console.log("[background] ai-stream connected");
+
+  port.onMessage.addListener((msg) => {
+    if (!msg || msg.type !== "START_AI_SUMMARY") return;
+
+    const pageText = msg.pageText || "";
+    const url = msg.url || "";
+
+    console.log("[background] START_AI_SUMMARY 收到，url:", url);
+
+    // 调用你已经写好的流式函数
+    callDeepseekSummaryStream(pageText, url, port).catch((err) => {
+      console.error("callDeepseekSummaryStream 出错：", err);
+      try {
+        port.postMessage({ error: String(err) });
+      } catch {}
+      try {
+        port.disconnect();
+      } catch {}
+    });
+  });
+});
+
+
+async function callDeepseekSummaryStream(pageText, url, port) {
+  const configRes = await fetch(chrome.runtime.getURL("config.json"));
+  const cfg = await configRes.json();
+
+  const apiUrl = cfg.DEEPSEEK_API_URL + "/chat/completions";
+  const apiKey = cfg.DEEPSEEK_API_KEY;
+
+  // 取文本
+  const MAX_LEN = 12000;
+  const text = pageText.replace(/\s+/g, " ").slice(0, MAX_LEN);
+
+  const resp = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + apiKey
+    },
+    body: JSON.stringify({
+      model: "deepseek-chat",
+      stream: true,
+      messages: [
+        {
+          role: "system",
+          content: `
+你是一名专业的信息梳理与内容分析助手，请对用户当前浏览的网页进行“结构化深度总结”。
+
+请基于以下文本内容，完成一个全面、可靠、易读的页面理解报告：
+
+【输出格式要求】
+1. **页面总体概述（1-2 句话）**  
+   - 网页是什么？目的是什么？
+
+2. **核心内容要点（5～10 条）**  
+   - 抽取最重要的信息，而不是只是摘抄。
+
+3. **一句话总结（精炼版）**
+
+【写作要求】  
+- 完整性优先，确保用户不需要自己读网页也能理解其主要价值。
+- 使用中文进行总结。
+- 不要冗长，不要重复页面原文，用自己的话改写。
+- 如文本中包含代码、命令、数字，请准确提取。
+`			
+        },
+        {
+          role: "user",
+          content: `网页：${url}\n\n主要内容：${text}`
+        }
+      ]
+    })
+  });
+
+  if (!resp.ok) {
+    port.postMessage({ error: "HTTP "+resp.status });
+    port.disconnect();
+    return;
+  }
+
+  // --- 流式读取 ---
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+
+    // 解析每一行 "data:"
+    const lines = chunk.split("\n").filter(l => l.trim().startsWith("data:"));
+
+    for (const line of lines) {
+      const data = line.replace(/^data:\s*/, "");
+      if (data === "[DONE]") {
+        port.postMessage({ done: true });
+        port.disconnect();
+        return;
+      }
+      try {
+        const json = JSON.parse(data);
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) {
+          port.postMessage({ delta });
+        }
+      } catch (e) {
+        console.warn("流 JSON 解析失败：", e, data);
+      }
+    }
+  }
+
+  port.postMessage({ done: true });
+  port.disconnect();
+}
+
+
+
 
 // ================== 自动巡检逻辑（新标签页版本） ==================
 function startAutoCrawlInNewTab(currentTabId, urls, cssSelector) {

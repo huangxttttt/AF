@@ -1,6 +1,314 @@
 // panel.js：运行在页面里的脚本，负责小面板 UI + 选区等
 
 (() => {
+  // ================== 注入全局样式（mac 风格，尽量少用内联） ==================
+  function injectStyles() {
+    if (document.getElementById("__dark-spy-style")) return;
+
+    const style = document.createElement("style");
+    style.id = "__dark-spy-style";
+    style.textContent = `
+      :root {
+        --ds-blue: #0A84FF;
+        --ds-blue-hover: #006FE0;
+        --ds-border-soft: rgba(0,0,0,0.08);
+        --ds-shadow: 0 12px 32px rgba(0,0,0,0.12);
+        --ds-bg-glass: rgba(255,255,255,0.78);
+        --ds-bg-subtle: rgba(250,250,250,0.86);
+        --ds-text-main: #1c1c1e;
+        --ds-text-sub: #7b7b7c;
+        --ds-radius-lg: 18px;
+        --ds-radius-md: 12px;
+        --ds-radius-sm: 8px;
+      }
+
+      #random-demo-overlay {
+        position: fixed;
+        right: 24px;
+        bottom: 24px;
+        z-index: 2147483646;
+        max-width: 380px;
+        min-width: 260px;
+        max-height: 70vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+
+        background: var(--ds-bg-glass);
+        backdrop-filter: saturate(180%) blur(20px);
+        border-radius: var(--ds-radius-lg);
+        border: 1px solid var(--ds-border-soft);
+        box-shadow: var(--ds-shadow);
+
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+        color: var(--ds-text-main);
+      }
+
+      .ds-header {
+        cursor: move;
+        padding: 8px 14px;
+        background: rgba(255,255,255,0.6);
+        backdrop-filter: blur(12px);
+        border-bottom: 1px solid var(--ds-border-soft);
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .ds-title {
+        font-size: 13px;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+      }
+
+      .ds-close-btn {
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 16px;
+        line-height: 1;
+        color: #9ca3af;
+        width: 22px;
+        height: 22px;
+        border-radius: 999px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0;
+      }
+      .ds-close-btn:hover {
+        background: rgba(0,0,0,0.06);
+        color: #4b5563;
+      }
+
+      .ds-tab-bar {
+        display: flex;
+        gap: 16px;
+        padding: 0 12px;
+        border-bottom: 1px solid var(--ds-border-soft);
+        background: rgba(249,250,251,0.95);
+      }
+      .ds-tab-item {
+        font-size: 12px;
+        padding: 8px 0;
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+        color: var(--ds-text-sub);
+        border-bottom: 2px solid transparent;
+      }
+      .ds-tab-item:hover {
+        color: #4b5563;
+      }
+      .ds-tab-item.active {
+        color: var(--ds-blue);
+        border-bottom-color: var(--ds-blue);
+      }
+
+      .ds-content-wrapper {
+        flex: 1;
+        overflow: hidden;
+      }
+
+      #random-demo-box,
+      #random-demo-box-extra {
+        padding: 10px 12px 8px 12px;
+        overflow: auto;
+        max-height: calc(70vh - 70px);
+        font-size: 13px;
+      }
+
+      #random-demo-text {
+        margin-bottom: 8px;
+        font-size: 14px;
+        font-weight: 500;
+        line-height: 1.5;
+      }
+
+      .ds-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin-bottom: 8px;
+      }
+
+      .ds-row-space-between {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 6px;
+        margin-bottom: 4px;
+      }
+
+      .ds-label {
+        font-size: 12px;
+        color: #4b5563;
+      }
+
+      .ds-input,
+      .ds-select,
+      .ds-textarea {
+        width: 100%;
+        background: rgba(255,255,255,0.65);
+        border: 1px solid var(--ds-border-soft);
+        border-radius: 10px;
+        backdrop-filter: blur(8px);
+        font-size: 12px;
+        padding: 6px 8px;
+        outline: none;
+        box-sizing: border-box;
+      }
+
+      .ds-textarea {
+        min-height: 120px;
+        font-family: SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+        resize: vertical;
+      }
+
+      .ds-input:focus,
+      .ds-textarea:focus,
+      .ds-select:focus {
+        border-color: var(--ds-blue);
+        box-shadow: 0 0 0 2px rgba(10,132,255,0.3);
+        background: rgba(255,255,255,0.95);
+      }
+
+      .ds-btn {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+        border: none;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        white-space: nowrap;
+        transition: all 0.15s ease;
+      }
+      .ds-btn-primary {
+        background: var(--ds-blue);
+        color: #fff;
+      }
+      .ds-btn-primary:hover {
+        background: var(--ds-blue-hover);
+      }
+      .ds-btn-secondary {
+        background: rgba(0,0,0,0.04);
+        color: var(--ds-text-main);
+      }
+      .ds-btn-secondary:hover {
+        background: rgba(0,0,0,0.08);
+      }
+      .ds-btn-outline {
+        background: #ffffff;
+        border: 1px solid rgba(209,213,219,1);
+        color: #374151;
+      }
+      .ds-btn-outline:hover {
+        background: #f3f4f6;
+      }
+      .ds-btn-danger {
+        background: #dc2626;
+        color: #fff;
+      }
+
+      .ds-btn-pill-small {
+        padding: 2px 8px;
+        font-size: 11px;
+        border-radius: 999px;
+      }
+
+      .ds-btn-pill-primary {
+        padding: 2px 10px;
+        font-size: 11px;
+        border-radius: 999px;
+        background: var(--ds-blue);
+        color: #fff;
+        border: none;
+      }
+      .ds-btn-pill-primary:hover {
+        background: var(--ds-blue-hover);
+      }
+
+      #random-demo-status-bar {
+        font-size: 12px;
+        text-align: left;
+        padding: 4px 12px;
+        min-height: 20px;
+        border-top: 1px solid var(--ds-border-soft);
+        background: var(--ds-bg-subtle);
+      }
+
+      .ds-footer {
+        font-size: 10px;
+        color: #9ca3af;
+        text-align: center;
+        padding: 4px 0 6px 0;
+      }
+
+      #random-demo-summary {
+        font-size: 12px;
+        color: #374151;
+        margin-bottom: 8px;
+        line-height: 1.8;
+        padding: 8px 10px;
+        background: rgba(255,255,255,0.75);
+        border-radius: 10px;
+        border: 1px solid var(--ds-border-soft);
+      }
+
+      #random-demo-body-pre {
+        white-space: pre-wrap;
+        text-align: left;
+        padding: 10px 12px;
+        background: rgba(245,245,247,0.9);
+        border-radius: 10px;
+        max-height: 220px;
+        overflow: auto;
+        font-size: 11px;
+        line-height: 1.5;
+        border: 1px solid var(--ds-border-soft);
+        margin-top: 4px;
+      }
+
+      .ds-summary-title-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        font-weight: 600;
+        color: #111827;
+        margin-bottom: 6px;
+      }
+
+      .ds-summary-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 999px;
+        background: var(--ds-blue);
+      }
+
+      .ds-badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 20px;
+        padding: 0 6px;
+        font-size: 11px;
+        border-radius: 999px;
+        background: #e5edff;
+        color: #1d4ed8;
+      }
+
+      .__llm_block_highlight {
+        outline: 2px solid var(--ds-blue) !important;
+        cursor: crosshair !important;
+        box-shadow: 0 0 0 2px rgba(10,132,255,0.25) !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   // ================== 文案 & 基本变量 ==================
   const messages = [
     "今天也是充满希望的一天！",
@@ -77,17 +385,6 @@
     if (!pre) {
       pre = document.createElement("pre");
       pre.id = "random-demo-body-pre";
-      pre.style.whiteSpace = "pre-wrap";
-      pre.style.textAlign = "left";
-      pre.style.padding = "10px 12px";
-      pre.style.background = "#f9fafb";
-      pre.style.borderRadius = "10px";
-      pre.style.maxHeight = "220px";
-      pre.style.overflow = "auto";
-      pre.style.fontSize = "11px";
-      pre.style.lineHeight = "1.5";
-      pre.style.border = "1px solid #e5e7eb";
-      pre.style.marginTop = "4px";
       box.appendChild(pre);
     }
     pre.textContent = text;
@@ -133,9 +430,9 @@
       selectionStyle = document.createElement("style");
       selectionStyle.textContent = `
         .__llm_block_highlight {
-          outline: 2px solid #2563eb !important;
+          outline: 2px solid #0A84FF !important;
           cursor: crosshair !important;
-          box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15) !important;
+          box-shadow: 0 0 0 2px rgba(10,132,255,0.25) !important;
         }
       `;
       document.head.appendChild(selectionStyle);
@@ -185,12 +482,12 @@
     console.log("选中元素 CSS：", locator);
 
     showTextInPanel(html);
-	
-	// ⭐ 自动把 selector 写到输入框里，方便保存规则
-	if (window.__panel_locator_input) {
-	  window.__panel_locator_input.value = locator;
-	}
-	
+
+    // 自动写入 locator 输入框
+    if (window.__panel_locator_input) {
+      window.__panel_locator_input.value = locator;
+    }
+
     uploadHtml({
       html,
       locator,
@@ -227,12 +524,10 @@
       selectionTip.style.left = "0";
       selectionTip.style.right = "0";
       selectionTip.style.zIndex = "999999";
-      selectionTip.style.background = "#2563eb";
+      selectionTip.style.background = "#0A84FF";
       selectionTip.style.color = "#fff";
       selectionTip.style.padding = "8px 16px";
       selectionTip.style.fontSize = "14px";
-      selectionTip.style.fontFamily =
-        "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
       selectionTip.style.textAlign = "center";
       selectionTip.style.boxShadow = "0 10px 30px rgba(15,23,42,0.25)";
       document.body.appendChild(selectionTip);
@@ -342,14 +637,6 @@
     if (!summaryEl) {
       summaryEl = document.createElement("div");
       summaryEl.id = "random-demo-summary";
-      summaryEl.style.fontSize = "12px";
-      summaryEl.style.color = "#374151";
-      summaryEl.style.marginBottom = "8px";
-      summaryEl.style.lineHeight = "1.8";
-      summaryEl.style.padding = "8px 10px";
-      summaryEl.style.background = "#f9fafb";
-      summaryEl.style.borderRadius = "10px";
-      summaryEl.style.border = "1px solid #e5e7eb";
 
       const textEl = document.getElementById("random-demo-text");
       if (textEl && textEl.nextSibling) {
@@ -362,36 +649,24 @@
     }
 
     const titleRow = document.createElement("div");
-    titleRow.textContent = "本页结构分析";
-    titleRow.style.fontSize = "12px";
-    titleRow.style.fontWeight = "600";
-    titleRow.style.color = "#111827";
-    titleRow.style.marginBottom = "6px";
-    titleRow.style.display = "flex";
-    titleRow.style.alignItems = "center";
-    titleRow.style.gap = "6px";
+    titleRow.className = "ds-summary-title-row";
 
     const dot = document.createElement("span");
-    dot.style.width = "6px";
-    dot.style.height = "6px";
-    dot.style.borderRadius = "999px";
-    dot.style.background = "#2563eb";
-    titleRow.insertBefore(dot, titleRow.firstChild);
+    dot.className = "ds-summary-dot";
 
+    const titleText = document.createElement("span");
+    titleText.textContent = "页面结构总览";
+
+    titleRow.appendChild(dot);
+    titleRow.appendChild(titleText);
     summaryEl.appendChild(titleRow);
 
     function createRow(label, type) {
       const row = document.createElement("div");
-      row.style.display = "flex";
-      row.style.alignItems = "center";
-      row.style.justifyContent = "space-between";
-      row.style.gap = "6px";
-      row.style.marginBottom = "4px";
+      row.className = "ds-row-space-between";
 
       const left = document.createElement("div");
-      left.style.display = "flex";
-      left.style.alignItems = "center";
-      left.style.gap = "4px";
+      left.className = "ds-row";
 
       const count =
         type === "images" ? detectedImages.length : detectedTables.length;
@@ -399,19 +674,10 @@
       const labelSpan = document.createElement("span");
       labelSpan.textContent = label;
       labelSpan.style.fontWeight = "500";
-      labelSpan.style.color = "#111827";
 
       const badge = document.createElement("span");
+      badge.className = "ds-badge";
       badge.textContent = String(count);
-      badge.style.display = "inline-flex";
-      badge.style.alignItems = "center";
-      badge.style.justifyContent = "center";
-      badge.style.minWidth = "20px";
-      badge.style.padding = "0 6px";
-      badge.style.fontSize = "11px";
-      badge.style.borderRadius = "999px";
-      badge.style.background = "#e5edff";
-      badge.style.color = "#1d4ed8";
 
       left.appendChild(labelSpan);
       left.appendChild(badge);
@@ -421,38 +687,13 @@
       actions.style.gap = "4px";
 
       const viewBtn = document.createElement("button");
-      viewBtn.textContent = "查看JSON";
-      viewBtn.style.padding = "2px 8px";
-      viewBtn.style.fontSize = "11px";
-      viewBtn.style.cursor = "pointer";
-      viewBtn.style.borderRadius = "999px";
-      viewBtn.style.border = "1px solid #d1d5db";
-      viewBtn.style.background = "#ffffff";
-      viewBtn.style.color = "#374151";
+      viewBtn.textContent = "查看结构数据";
+      viewBtn.className = "ds-btn ds-btn-outline ds-btn-pill-small";
 
       const uploadBtn = document.createElement("button");
       uploadBtn.textContent = "上传";
-      uploadBtn.style.padding = "2px 10px";
-      uploadBtn.style.fontSize = "11px";
-      uploadBtn.style.cursor = "pointer";
-      uploadBtn.style.borderRadius = "999px";
-      uploadBtn.style.border = "1px solid #2563eb";
-      uploadBtn.style.background = "#2563eb";
-      uploadBtn.style.color = "#ffffff";
+      uploadBtn.className = "ds-btn ds-btn-pill-primary";
       uploadBtn.style.display = "none";
-
-      viewBtn.addEventListener("mouseenter", () => {
-        viewBtn.style.background = "#f3f4f6";
-      });
-      viewBtn.addEventListener("mouseleave", () => {
-        viewBtn.style.background = "#ffffff";
-      });
-      uploadBtn.addEventListener("mouseenter", () => {
-        uploadBtn.style.background = "#1d4ed8";
-      });
-      uploadBtn.addEventListener("mouseleave", () => {
-        uploadBtn.style.background = "#2563eb";
-      });
 
       viewBtn.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -469,7 +710,7 @@
           }
           showTextInPanel(JSON.stringify(detectedTables, null, 2));
         }
-        uploadBtn.style.display = "inline-block";
+        uploadBtn.style.display = "inline-flex";
       });
 
       uploadBtn.addEventListener("click", (e) => {
@@ -526,68 +767,31 @@
   }
 
   // ================== 创建 overlay & Tabs ==================
-  if (!overlay) {
+  function createOverlayIfNeeded() {
+    if (overlay) return;
+
+    injectStyles();
+
     overlay = document.createElement("div");
     overlay.id = "random-demo-overlay";
-    overlay.style.position = "fixed";
-    overlay.style.right = "24px";
-    overlay.style.bottom = "24px";
-    overlay.style.zIndex = "2147483646";
-    overlay.style.backgroundColor = "rgba(255,255,255,0.96)";
-    overlay.style.border = "1px solid #e5e7eb";
-    overlay.style.borderRadius = "16px";
-    overlay.style.boxShadow = "0 18px 45px rgba(15,23,42,0.22)";
-    overlay.style.fontFamily =
-      "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif";
-    overlay.style.maxWidth = "380px";
-    overlay.style.minWidth = "260px";
-    overlay.style.maxHeight = "70vh";
-    overlay.style.overflow = "hidden";
-    overlay.style.display = "flex";
-    overlay.style.flexDirection = "column";
-    overlay.style.backdropFilter = "blur(10px)";
 
     // header
     const header = document.createElement("div");
-    header.style.cursor = "move";
-    header.style.padding = "8px 14px";
-    header.style.background = "#f9fafb";
-    header.style.borderBottom = "1px solid #e5e7eb";
-    header.style.display = "flex";
-    header.style.alignItems = "center";
-    header.style.justifyContent = "space-between";
+    header.className = "ds-header";
 
     const title = document.createElement("span");
-    title.textContent = "暗访页面助手";
-    title.style.fontSize = "13px";
-    title.style.fontWeight = "600";
-    title.style.letterSpacing = "0.02em";
-    title.style.color = "#111827";
+    title.className = "ds-title";
+    title.textContent = "暗访者·页面助手";
 
     const miniClose = document.createElement("button");
+    miniClose.className = "ds-close-btn";
     miniClose.textContent = "×";
-    miniClose.style.border = "none";
-    miniClose.style.background = "transparent";
-    miniClose.style.cursor = "pointer";
-    miniClose.style.fontSize = "16px";
-    miniClose.style.lineHeight = "1";
-    miniClose.style.color = "#9ca3af";
-    miniClose.style.borderRadius = "999px";
-    miniClose.style.width = "22px";
-    miniClose.style.height = "22px";
-    miniClose.addEventListener("mouseenter", () => {
-      miniClose.style.background = "#e5e7eb";
-      miniClose.style.color = "#4b5563";
-    });
-    miniClose.addEventListener("mouseleave", () => {
-      miniClose.style.background = "transparent";
-      miniClose.style.color = "#9ca3af";
-    });
     miniClose.addEventListener("click", (e) => {
       e.stopPropagation();
       clearOldTimer();
       stopSelectionMode(false);
       overlay.remove();
+      overlay = null;
     });
 
     header.appendChild(title);
@@ -596,119 +800,49 @@
 
     // Tab bar
     const tabBar = document.createElement("div");
-    tabBar.style.display = "flex";
-    tabBar.style.alignItems = "stretch";
-    tabBar.style.gap = "16px";
-    tabBar.style.padding = "0 12px";
-    tabBar.style.borderBottom = "1px solid #e5e7eb";
-    tabBar.style.background = "#f9fafb";
-    overlay.appendChild(tabBar);
+    tabBar.className = "ds-tab-bar";
 
     function createTabItem(text, tabName, isActive) {
       const item = document.createElement("div");
       item.textContent = text;
       item.dataset.tab = tabName;
-      item.className = "random-demo-tab-item";
-      item.style.fontSize = "12px";
-      item.style.padding = "8px 0";
-      item.style.cursor = "pointer";
-      item.style.userSelect = "none";
-      item.style.whiteSpace = "nowrap";
-
-      if (isActive) {
-        item.style.color = "#2563eb";
-        item.style.borderBottom = "2px solid #2563eb";
-        item.classList.add("active");
-      } else {
-        item.style.color = "#6b7280";
-        item.style.borderBottom = "2px solid transparent";
-      }
-
-      item.addEventListener("mouseenter", () => {
-        if (!item.classList.contains("active")) {
-          item.style.color = "#374151";
-        }
-      });
-      item.addEventListener("mouseleave", () => {
-        if (!item.classList.contains("active")) {
-          item.style.color = "#6b7280";
-        }
-      });
-
+      item.className = "ds-tab-item" + (isActive ? " active" : "");
       return item;
     }
 
     const tabMain = createTabItem("当前页", "main", true);
     const tabExtra = createTabItem("自动巡检", "extra", false);
+
     tabBar.appendChild(tabMain);
     tabBar.appendChild(tabExtra);
+    overlay.appendChild(tabBar);
 
     // 内容区域 wrapper
     const contentWrapper = document.createElement("div");
-    contentWrapper.style.flex = "1";
-    contentWrapper.style.overflow = "hidden";
+    contentWrapper.className = "ds-content-wrapper";
     overlay.appendChild(contentWrapper);
 
     // ========== Tab1：当前页 ==========
     const box = document.createElement("div");
     box.id = "random-demo-box";
-    box.style.padding = "10px 12px 8px 12px";
-    box.style.overflow = "auto";
-    box.style.maxHeight = "calc(70vh - 70px)";
 
     const textEl = document.createElement("div");
     textEl.id = "random-demo-text";
-    textEl.style.marginBottom = "8px";
-    textEl.style.fontSize = "14px";
-    textEl.style.fontWeight = "500";
-    textEl.style.color = "#111827";
-    textEl.style.lineHeight = "1.5";
     box.appendChild(textEl);
 
     // locator + 高亮 + 保存规则
     const locatorWrap = document.createElement("div");
-    locatorWrap.style.display = "flex";
-    locatorWrap.style.gap = "6px";
-    locatorWrap.style.marginBottom = "10px";
-    locatorWrap.style.alignItems = "center";
+    locatorWrap.className = "ds-row";
 
     const locatorInput = document.createElement("input");
     locatorInput.type = "text";
     locatorInput.placeholder = "输入 CSS 选择器（locator）";
+    locatorInput.className = "ds-input";
     locatorInput.style.flex = "1";
-    locatorInput.style.padding = "6px 8px";
-    locatorInput.style.borderRadius = "10px";
-    locatorInput.style.border = "1px solid #e5e7eb";
-    locatorInput.style.fontSize = "12px";
-    locatorInput.style.outline = "none";
-    locatorInput.style.background = "#f9fafb";
-
-    locatorInput.addEventListener("focus", () => {
-      locatorInput.style.borderColor = "#2563eb";
-      locatorInput.style.boxShadow = "0 0 0 1px rgba(37,99,235,0.15)";
-      locatorInput.style.background = "#ffffff";
-    });
-    locatorInput.addEventListener("blur", () => {
-      locatorInput.style.borderColor = "#e5e7eb";
-      locatorInput.style.boxShadow = "none";
-      locatorInput.style.background = "#f9fafb";
-    });
 
     const locatorBtn = document.createElement("button");
-    locatorBtn.textContent = "高亮";
-    locatorBtn.style.padding = "6px 10px";
-    locatorBtn.style.cursor = "pointer";
-    locatorBtn.style.borderRadius = "999px";
-    locatorBtn.style.border = "1px solid #d1d5db";
-    locatorBtn.style.fontSize = "12px";
-    locatorBtn.style.background = "#ffffff";
-    locatorBtn.style.color = "#374151";
-    locatorBtn.addEventListener("mouseenter", () => {
-      locatorBtn.style.background = "#f3f4f6";
-    });
-    locatorBtn.addEventListener("mouseleave", () => {
-      locatorBtn.style.background = "#ffffff";
-    });
+    locatorBtn.textContent = "预览定位";
+    locatorBtn.className = "ds-btn ds-btn-outline";
     locatorBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       highlightByLocator(locatorInput.value);
@@ -716,21 +850,7 @@
 
     const saveRuleBtn = document.createElement("button");
     saveRuleBtn.textContent = "保存规则";
-    saveRuleBtn.style.padding = "6px 10px";
-    saveRuleBtn.style.cursor = "pointer";
-    saveRuleBtn.style.borderRadius = "999px";
-    saveRuleBtn.style.border = "1px solid #2563eb";
-    saveRuleBtn.style.fontSize = "12px";
-    saveRuleBtn.style.background = "#2563eb";
-    saveRuleBtn.style.color = "#ffffff";
-
-    saveRuleBtn.addEventListener("mouseenter", () => {
-      saveRuleBtn.style.background = "#1d4ed8";
-    });
-    saveRuleBtn.addEventListener("mouseleave", () => {
-      saveRuleBtn.style.background = "#2563eb";
-    });
-
+    saveRuleBtn.className = "ds-btn ds-btn-primary";
     saveRuleBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const selector = (locatorInput.value || "").trim();
@@ -758,119 +878,130 @@
     locatorWrap.appendChild(locatorBtn);
     locatorWrap.appendChild(saveRuleBtn);
     box.appendChild(locatorWrap);
-	
-	
-	// ⭐ 把 input 存到全局，方便别的函数使用
-	window.__panel_locator_input = locatorInput;
 
-    // 按钮区域（上传整页 / 选择区域）
+    // 把 input 存到全局，方便别的函数使用
+    window.__panel_locator_input = locatorInput;
+
+    // 按钮区域（上传整页 / 选择区域 / AI总结）
     const btnWrap = document.createElement("div");
-    btnWrap.style.display = "flex";
+    btnWrap.className = "ds-row";
     btnWrap.style.flexWrap = "wrap";
     btnWrap.style.justifyContent = "flex-start";
-    btnWrap.style.gap = "8px";
-    btnWrap.style.marginBottom = "6px";
-    box.appendChild(btnWrap);
+    btnWrap.style.alignItems = "flex-start";
 
     const showBodyBtn = document.createElement("button");
-    showBodyBtn.textContent = "上传整个页面源码";
-    showBodyBtn.style.padding = "6px 10px";
-    showBodyBtn.style.cursor = "pointer";
-    showBodyBtn.style.borderRadius = "999px";
-    showBodyBtn.style.border = "1px solid #d1d5db";
-    showBodyBtn.style.fontSize = "12px";
-    showBodyBtn.style.background = "#ffffff";
-    showBodyBtn.style.color = "#374151";
-    showBodyBtn.addEventListener("mouseenter", () => {
-      showBodyBtn.style.background = "#f3f4f6";
-    });
-    showBodyBtn.addEventListener("mouseleave", () => {
-      showBodyBtn.style.background = "#ffffff";
-    });
+    showBodyBtn.textContent = "上传整页内容";
+    showBodyBtn.className = "ds-btn ds-btn-outline";
     showBodyBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const html = document.body.innerHTML || "";
       showTextInPanel(html);
       uploadHtml({ html, selectionType: "body" });
     });
-    btnWrap.appendChild(showBodyBtn);
 
     const selectAreaBtn = document.createElement("button");
-    selectAreaBtn.textContent = "选择区域并上传";
-    selectAreaBtn.style.padding = "6px 10px";
-    selectAreaBtn.style.cursor = "pointer";
-    selectAreaBtn.style.borderRadius = "999px";
-    selectAreaBtn.style.border = "1px solid #2563eb";
-    selectAreaBtn.style.fontSize = "12px";
-    selectAreaBtn.style.background = "#2563eb";
-    selectAreaBtn.style.color = "#ffffff";
-    selectAreaBtn.addEventListener("mouseenter", () => {
-      selectAreaBtn.style.background = "#1d4ed8";
-    });
-    selectAreaBtn.addEventListener("mouseleave", () => {
-      selectAreaBtn.style.background = "#2563eb";
-    });
+    selectAreaBtn.textContent = "上传所选区域";
+    selectAreaBtn.className = "ds-btn ds-btn-primary";
     selectAreaBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       startSelectionMode();
     });
+
+    const aiSummaryBtn = document.createElement("button");
+    aiSummaryBtn.textContent = "AI 总结本页";
+    aiSummaryBtn.className = "ds-btn ds-btn-primary";
+    aiSummaryBtn.style.background = "#10b981";
+    aiSummaryBtn.style.border = "none";
+    aiSummaryBtn.addEventListener("mouseenter", () => {
+      aiSummaryBtn.style.background = "#059669";
+    });
+    aiSummaryBtn.addEventListener("mouseleave", () => {
+      aiSummaryBtn.style.background = "#10b981";
+    });
+
+    aiSummaryBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      const status = document.getElementById("random-demo-status-bar");
+      if (status) {
+        status.style.color = "#6b7280";
+        status.textContent = "AI 正在总结…";
+      }
+
+      const pageText = document.body?.innerText || "";
+      const url = location.href;
+
+      // 清空面板并拿到 pre
+      showTextInPanel("");
+      const pre = document.getElementById("random-demo-body-pre");
+
+      const port = chrome.runtime.connect({ name: "ai-stream" });
+
+      port.postMessage({
+        type: "START_AI_SUMMARY",
+        pageText,
+        url,
+      });
+
+      port.onMessage.addListener((msg) => {
+        if (msg.delta) {
+          pre.textContent += msg.delta;
+          pre.scrollTop = pre.scrollHeight;
+        } else if (msg.done) {
+          if (status) {
+            status.style.color = "#16a34a";
+            status.textContent = "AI 总结完成 ✓";
+          }
+          try {
+            port.disconnect();
+          } catch {}
+        } else if (msg.error) {
+          console.error("AI 流错误：", msg.error);
+          if (status) {
+            status.style.color = "#dc2626";
+            status.textContent = "AI 错误：" + msg.error;
+          }
+          try {
+            port.disconnect();
+          } catch {}
+        }
+      });
+    });
+
+    btnWrap.appendChild(showBodyBtn);
     btnWrap.appendChild(selectAreaBtn);
+    btnWrap.appendChild(aiSummaryBtn);
+    box.appendChild(btnWrap);
 
     contentWrapper.appendChild(box);
 
     // ========== Tab2：自动巡检 ==========
     const extraBox = document.createElement("div");
     extraBox.id = "random-demo-box-extra";
-    extraBox.style.padding = "10px 12px 8px 12px";
-    extraBox.style.overflow = "auto";
-    extraBox.style.maxHeight = "calc(70vh - 70px)";
     extraBox.style.display = "none";
 
     const extraTitle = document.createElement("div");
-    extraTitle.textContent = "自动巡检（登录后批量采集子页面）";
+    extraTitle.textContent = "批量采集子页面";
     extraTitle.style.fontSize = "13px";
     extraTitle.style.fontWeight = "600";
-    extraTitle.style.color = "#111827";
     extraTitle.style.marginBottom = "8px";
     extraBox.appendChild(extraTitle);
 
     // 规则选择
     let currentRules = [];
     const ruleRow = document.createElement("div");
-    ruleRow.style.display = "flex";
-    ruleRow.style.alignItems = "center";
-    ruleRow.style.gap = "6px";
-    ruleRow.style.marginBottom = "8px";
+    ruleRow.className = "ds-row";
 
     const ruleLabel = document.createElement("span");
-    ruleLabel.textContent = "采集规则：";
-    ruleLabel.style.fontSize = "12px";
-    ruleLabel.style.color = "#4b5563";
+    ruleLabel.className = "ds-label";
+    ruleLabel.textContent = "采集规则:";
 
     const ruleSelect = document.createElement("select");
-    ruleSelect.style.flex = "1";
-    ruleSelect.style.padding = "6px 8px";
-    ruleSelect.style.borderRadius = "10px";
-    ruleSelect.style.border = "1px solid #e5e7eb";
-    ruleSelect.style.fontSize = "12px";
-    ruleSelect.style.background = "#f9fafb";
+    ruleSelect.className = "ds-select";
 
     const reloadRuleBtn = document.createElement("button");
     reloadRuleBtn.textContent = "刷新规则";
-    reloadRuleBtn.style.padding = "6px 8px";
-    reloadRuleBtn.style.cursor = "pointer";
-    reloadRuleBtn.style.borderRadius = "999px";
-    reloadRuleBtn.style.border = "1px solid #d1d5db";
-    reloadRuleBtn.style.fontSize = "12px";
-    reloadRuleBtn.style.background = "#ffffff";
-    reloadRuleBtn.style.color = "#374151";
-
-    reloadRuleBtn.addEventListener("mouseenter", () => {
-      reloadRuleBtn.style.background = "#f3f4f6";
-    });
-    reloadRuleBtn.addEventListener("mouseleave", () => {
-      reloadRuleBtn.style.background = "#ffffff";
-    });
+    reloadRuleBtn.className = "ds-btn ds-btn-outline";
 
     function loadRulesIntoSelect() {
       chrome.storage.sync.get({ crawlRules: [] }, (res) => {
@@ -903,36 +1034,17 @@
 
     // 自定义 selector（可覆盖规则）
     const selectorWrap = document.createElement("div");
-    selectorWrap.style.display = "flex";
-    selectorWrap.style.alignItems = "center";
-    selectorWrap.style.gap = "6px";
-    selectorWrap.style.marginBottom = "8px";
+    selectorWrap.className = "ds-row";
 
     const selectorLabel = document.createElement("span");
+    selectorLabel.className = "ds-label";
     selectorLabel.textContent = "自定义 CSS：";
-    selectorLabel.style.fontSize = "12px";
-    selectorLabel.style.color = "#4b5563";
 
     const selectorInput = document.createElement("input");
     selectorInput.type = "text";
     selectorInput.placeholder = "可选，填了就优先用它（例如：.main-content）";
+    selectorInput.className = "ds-input";
     selectorInput.style.flex = "1";
-    selectorInput.style.padding = "6px 8px";
-    selectorInput.style.borderRadius = "10px";
-    selectorInput.style.border = "1px solid #e5e7eb";
-    selectorInput.style.fontSize = "12px";
-    selectorInput.style.background = "#f9fafb";
-
-    selectorInput.addEventListener("focus", () => {
-      selectorInput.style.borderColor = "#2563eb";
-      selectorInput.style.boxShadow = "0 0 0 1px rgba(37,99,235,0.15)";
-      selectorInput.style.background = "#ffffff";
-    });
-    selectorInput.addEventListener("blur", () => {
-      selectorInput.style.borderColor = "#e5e7eb";
-      selectorInput.style.boxShadow = "none";
-      selectorInput.style.background = "#f9fafb";
-    });
 
     selectorWrap.appendChild(selectorLabel);
     selectorWrap.appendChild(selectorInput);
@@ -941,38 +1053,22 @@
     // URL 文本框
     const urlTextarea = document.createElement("textarea");
     urlTextarea.placeholder = "每行一个子页面 URL，可以写完整地址，也可以是 /path 形式";
-    urlTextarea.style.width = "100%";
-    urlTextarea.style.minHeight = "120px";
-    urlTextarea.style.fontSize = "12px";
-    urlTextarea.style.fontFamily = "monospace";
-    urlTextarea.style.padding = "8px";
-    urlTextarea.style.borderRadius = "10px";
-    urlTextarea.style.border = "1px solid #e5e7eb";
-    urlTextarea.style.boxSizing = "border-box";
-    urlTextarea.style.marginBottom = "8px";
+    urlTextarea.className = "ds-textarea";
     extraBox.appendChild(urlTextarea);
 
     // base URL
     const baseUrlWrap = document.createElement("div");
-    baseUrlWrap.style.display = "flex";
-    baseUrlWrap.style.alignItems = "center";
-    baseUrlWrap.style.gap = "6px";
-    baseUrlWrap.style.marginBottom = "8px";
+    baseUrlWrap.className = "ds-row";
 
     const baseUrlLabel = document.createElement("span");
+    baseUrlLabel.className = "ds-label";
     baseUrlLabel.textContent = "基础域名：";
-    baseUrlLabel.style.fontSize = "12px";
-    baseUrlLabel.style.color = "#4b5563";
 
     const baseUrlInput = document.createElement("input");
     baseUrlInput.type = "text";
     baseUrlInput.placeholder = "默认用当前站点，例如 " + location.origin;
+    baseUrlInput.className = "ds-input";
     baseUrlInput.style.flex = "1";
-    baseUrlInput.style.padding = "6px 8px";
-    baseUrlInput.style.borderRadius = "10px";
-    baseUrlInput.style.border = "1px solid #e5e7eb";
-    baseUrlInput.style.fontSize = "12px";
-    baseUrlInput.style.background = "#f9fafb";
 
     baseUrlWrap.appendChild(baseUrlLabel);
     baseUrlWrap.appendChild(baseUrlInput);
@@ -980,28 +1076,12 @@
 
     // 按钮行
     const crawlBtnRow = document.createElement("div");
-    crawlBtnRow.style.display = "flex";
-    crawlBtnRow.style.gap = "8px";
-    crawlBtnRow.style.alignItems = "center";
+    crawlBtnRow.className = "ds-row";
     crawlBtnRow.style.marginTop = "4px";
-    extraBox.appendChild(crawlBtnRow);
 
     const startCrawlBtn = document.createElement("button");
-    startCrawlBtn.textContent = "开始巡检并上传";
-    startCrawlBtn.style.padding = "6px 12px";
-    startCrawlBtn.style.cursor = "pointer";
-    startCrawlBtn.style.borderRadius = "999px";
-    startCrawlBtn.style.border = "1px solid #2563eb";
-    startCrawlBtn.style.fontSize = "12px";
-    startCrawlBtn.style.background = "#2563eb";
-    startCrawlBtn.style.color = "#ffffff";
-
-    startCrawlBtn.addEventListener("mouseenter", () => {
-      startCrawlBtn.style.background = "#1d4ed8";
-    });
-    startCrawlBtn.addEventListener("mouseleave", () => {
-      startCrawlBtn.style.background = "#2563eb";
-    });
+    startCrawlBtn.textContent = "开始批量采集";
+    startCrawlBtn.className = "ds-btn ds-btn-primary";
 
     startCrawlBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1077,15 +1157,11 @@
     function switchTab(tabName) {
       const mainBox = document.getElementById("random-demo-box");
       const extraBox = document.getElementById("random-demo-box-extra");
-      const items = overlay.querySelectorAll(".random-demo-tab-item");
+      const items = overlay.querySelectorAll(".ds-tab-item");
 
       items.forEach((it) => {
         const active = it.dataset.tab === tabName;
         it.classList.toggle("active", active);
-        it.style.color = active ? "#2563eb" : "#6b7280";
-        it.style.borderBottom = active
-          ? "2px solid #2563eb"
-          : "2px solid transparent";
       });
 
       if (tabName === "main") {
@@ -1110,22 +1186,12 @@
     // 状态栏
     const statusBar = document.createElement("div");
     statusBar.id = "random-demo-status-bar";
-    statusBar.style.fontSize = "12px";
-    statusBar.style.color = "#6b7280";
-    statusBar.style.textAlign = "left";
-    statusBar.style.padding = "4px 12px 4px 12px";
-    statusBar.style.minHeight = "20px";
-    statusBar.style.borderTop = "1px solid #e5e7eb";
-    statusBar.style.background = "#f9fafb";
     overlay.appendChild(statusBar);
 
     // 作者
     const author = document.createElement("div");
+    author.className = "ds-footer";
     author.textContent = "© 2025 by easymer's huangxiaotao";
-    author.style.fontSize = "10px";
-    author.style.color = "#9ca3af";
-    author.style.textAlign = "center";
-    author.style.padding = "4px 0 6px 0";
     overlay.appendChild(author);
 
     document.body.appendChild(overlay);
@@ -1166,8 +1232,13 @@
   }
 
   // ================== 初始化：随机文案 + 结构分析 ==================
-  clearOldTimer();
-  setRandomMessage();
-  window.__random_demo_timer = setInterval(setRandomMessage, 3000);
-  detectAndRenderSummary();
+  function init() {
+    createOverlayIfNeeded();
+    clearOldTimer();
+    setRandomMessage();
+    window.__random_demo_timer = setInterval(setRandomMessage, 3000);
+    detectAndRenderSummary();
+  }
+
+  init();
 })();

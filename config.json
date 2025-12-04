@@ -1,3 +1,5 @@
 {
-  "API_URL": "http://172.23.27.133:8776/html/receive-body"
+  "API_URL": "http://172.23.27.133:8776/html/receive-body",
+  "DEEPSEEK_API_URL":"https://api.deepseek.com",
+  "DEEPSEEK_API_KEY":"sk-fb1f12c6892e4da290ef791e040f5f35"
 }
