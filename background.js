@@ -167,6 +167,7 @@ chrome.runtime.onConnect.addListener((port) => {
     return;
   }
 });
+
 async function callDeepseekTranslateStream(blockText, url, port) {
   const configRes = await fetch(chrome.runtime.getURL("config.json"));
   const cfg = await configRes.json();

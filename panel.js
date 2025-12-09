@@ -1149,7 +1149,7 @@
     });
 
     const aiSummaryBtn = document.createElement("button");
-    aiSummaryBtn.textContent = "AI 总结本页";
+    aiSummaryBtn.textContent = "AI总结本页";
     aiSummaryBtn.className = "ds-btn ds-btn-primary";
     aiSummaryBtn.style.background = "#10b981";
     aiSummaryBtn.style.border = "none";
