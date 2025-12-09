@@ -112,33 +112,141 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   return false;
 });
 
-// ================== AI 总结：流式端口监听 ==================
 chrome.runtime.onConnect.addListener((port) => {
-  // 只处理我们定义的 ai-stream 端口
-  if (port.name !== "ai-stream") return;
+  console.log("[background] onConnect:", port.name);
 
-  console.log("[background] ai-stream connected");
+  // ---- AI 总结通道（保持原来的逻辑）----
+  if (port.name === "ai-stream") {
+    console.log("[background] ai-stream connected");
 
-  port.onMessage.addListener((msg) => {
-    if (!msg || msg.type !== "START_AI_SUMMARY") return;
+    port.onMessage.addListener((msg) => {
+      if (!msg || msg.type !== "START_AI_SUMMARY") return;
 
-    const pageText = msg.pageText || "";
-    const url = msg.url || "";
+      const pageText = msg.pageText || "";
+      const url = msg.url || "";
 
-    console.log("[background] START_AI_SUMMARY 收到，url:", url);
+      console.log("[background] START_AI_SUMMARY 收到，url:", url);
 
-    // 调用你已经写好的流式函数
-    callDeepseekSummaryStream(pageText, url, port).catch((err) => {
-      console.error("callDeepseekSummaryStream 出错：", err);
-      try {
-        port.postMessage({ error: String(err) });
-      } catch {}
-      try {
-        port.disconnect();
-      } catch {}
+      callDeepseekSummaryStream(pageText, url, port).catch((err) => {
+        console.error("callDeepseekSummaryStream 出错：", err);
+        try {
+          port.postMessage({ error: String(err) });
+        } catch {}
+        try {
+          port.disconnect();
+        } catch {}
+      });
     });
-  });
+
+    return;
+  }
+
+  // ---- 新增：自动翻译通道 ----
+  if (port.name === "ai-auto-translate") {
+    console.log("[background] ai-auto-translate connected");
+
+    port.onMessage.addListener((msg) => {
+      if (!msg || msg.type !== "TRANSLATE_BLOCK") return;
+
+      const text = msg.text || "";
+      const url = msg.url || "";
+
+      console.log("[background] TRANSLATE_BLOCK 收到，url:", url);
+
+      callDeepseekTranslateStream(text, url, port).catch((err) => {
+        console.error("callDeepseekTranslateStream 出错：", err);
+        try {
+          port.postMessage({ error: String(err) });
+        } catch {}
+        try {
+          port.disconnect();
+        } catch {}
+      });
+    });
+
+    return;
+  }
 });
+async function callDeepseekTranslateStream(blockText, url, port) {
+  const configRes = await fetch(chrome.runtime.getURL("config.json"));
+  const cfg = await configRes.json();
+
+  const apiUrl = cfg.DEEPSEEK_API_URL + "/chat/completions";
+  const apiKey = cfg.DEEPSEEK_API_KEY;
+
+  const MAX_LEN = 4000;
+  const text = (blockText || "").replace(/\s+/g, " ").slice(0, MAX_LEN);
+
+  const resp = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": "Bearer " + apiKey,
+    },
+    body: JSON.stringify({
+      model: "PolyNex-Instruct",
+      stream: true,
+      messages: [
+        {
+          role: "system",
+          content: `
+你是一名多语言网页翻译助手。
+
+【要求】
+1. 自动识别原文语言，将其翻译为“自然流畅的简体中文”。
+2. 保持原文的大致段落结构，方便阅读。
+3. 遇到代码、命令、变量名等，优先保留不翻。
+4. 如果原文已经是中文，仅做适度润色，使其更通顺简洁。
+
+【输出格式】
+- 只输出译文本身，不要添加任何说明或前后缀。`.trim(),
+        },
+        {
+          role: "user",
+          content: `来自网页：${url}\n\n需要翻译的内容：\n${text}`,
+        },
+      ],
+    }),
+  });
+
+  if (!resp.ok) {
+    port.postMessage({ error: "HTTP " + resp.status });
+    port.disconnect();
+    return;
+  }
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+
+    const chunk = decoder.decode(value, { stream: true });
+    const lines = chunk.split("\n").filter((l) => l.trim().startsWith("data:"));
+
+    for (const line of lines) {
+      const data = line.replace(/^data:\s*/, "");
+      if (data === "[DONE]") {
+        port.postMessage({ done: true });
+        port.disconnect();
+        return;
+      }
+      try {
+        const json = JSON.parse(data);
+        const delta = json.choices?.[0]?.delta?.content;
+        if (delta) {
+          port.postMessage({ delta });
+        }
+      } catch (e) {
+        console.warn("翻译流 JSON 解析失败：", e, data);
+      }
+    }
+  }
+
+  port.postMessage({ done: true });
+  port.disconnect();
+}
 
 
 async function callDeepseekSummaryStream(pageText, url, port) {
@@ -159,7 +267,7 @@ async function callDeepseekSummaryStream(pageText, url, port) {
       "Authorization": "Bearer " + apiKey
     },
     body: JSON.stringify({
-      model: "deepseek-chat",
+      model: "PolyNex-Instruct",
       stream: true,
       messages: [
         {
