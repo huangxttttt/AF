@@ -109,6 +109,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     return false;
   }
   
+  
+    // 3）AI 字段分析（前端结构化抽取使用）
+  if (message.type === "AI_SUGGEST_FIELDS") {
+    const text = message.text || "";
+    const url = message.url || "";
+
+    (async () => {
+      try {
+        const fields = await callDeepseekSuggestFields(text, url);
+        sendResponse({ ok: true, fields });
+      } catch (err) {
+        console.error("AI_SUGGEST_FIELDS 调用失败：", err);
+        sendResponse({ ok: false, error: String(err) });
+      }
+    })();
+
+    return true; // 异步
+  }
+
+  // 4）AI 结构化抽取（前端结构化抽取使用）
+  if (message.type === "AI_EXTRACT_STRUCTURED") {
+    const text = message.text || "";
+    const url = message.url || "";
+    const mode = message.mode || "single";
+    const fields = Array.isArray(message.fields) ? message.fields : [];
+
+    (async () => {
+      try {
+        const data = await callDeepseekExtractStructured(
+          text,
+          url,
+          mode,
+          fields
+        );
+        sendResponse({ ok: true, data });
+      } catch (err) {
+        console.error("AI_EXTRACT_STRUCTURED 调用失败：", err);
+        sendResponse({ ok: false, error: String(err) });
+      }
+    })();
+
+    return true; // 异步
+  }
+
   return false;
 });
 
@@ -195,7 +239,7 @@ async function callDeepseekTranslateStream(blockText, url, port) {
 
 【要求】
 1. 自动识别原文语言，将其翻译为“自然流畅的简体中文”。
-2. 保持原文的大致段落结构，方便阅读。
+2. 保持原文的大致段落结构，注意人名、技术名词不需要翻译，方便阅读。例如：Wang 就不需要翻译，直接输出。
 3. 遇到代码、命令、变量名等，优先保留不翻。
 4. 如果原文已经是中文，仅做适度润色，使其更通顺简洁。
 
@@ -344,6 +388,146 @@ async function callDeepseekSummaryStream(pageText, url, port) {
   port.disconnect();
 }
 
+async function callDeepseekSuggestFields(text, url) {
+  const configRes = await fetch(chrome.runtime.getURL("config.json"));
+  const cfg = await configRes.json();
+
+  const apiUrl = cfg.DEEPSEEK_API_URL + "/chat/completions";
+  const apiKey = cfg.DEEPSEEK_API_KEY;
+
+  const MAX_LEN = 4000;
+  const clean = (text || "").replace(/\s+/g, " ").slice(0, MAX_LEN);
+
+  const resp = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + apiKey,
+    },
+    body: JSON.stringify({
+      model: "PolyNex-Instruct",
+      stream: false,
+      messages: [
+        {
+          role: "system",
+          content: `
+你是一名结构化抽取的字段设计助手。
+
+【任务】
+1. 用户给你一段网页文本（可能来自列表中的若干条记录）。
+2. 请你根据内容，提出可用于抽取的字段列表。
+3. 每个字段包含：
+   - name: 英文字段名，用小写+下划线
+   - label: 字段含义的中文说明
+   - type: 数据类型（string / number / date / boolean / object 等）
+4. 如果无法确定，也可以只给出 name 和 label，type 填 "string"。
+
+【输出格式】
+只输出 JSON 数组，例如：
+[
+  {"name":"title","label":"标题","type":"string"},
+  {"name":"price","label":"价格","type":"number"}
+]
+不要添加任何多余说明文字。`.trim(),
+        },
+        {
+          role: "user",
+          content: `网页 URL：${url}\n\n选区文本示例：\n${clean}`,
+        },
+      ],
+    }),
+  });
+
+  if (!resp.ok) {
+    throw new Error("字段分析 HTTP 错误：" + resp.status);
+  }
+
+  const data = await resp.json();
+  const content = data.choices?.[0]?.message?.content?.trim() || "[]";
+
+  try {
+    const json = JSON.parse(content);
+    if (!Array.isArray(json)) {
+      throw new Error("返回内容不是数组");
+    }
+    return json;
+  } catch (err) {
+    console.error("解析字段 JSON 失败，原始内容：", content);
+    throw new Error("解析字段 JSON 失败：" + err.message);
+  }
+}
+
+async function callDeepseekExtractStructured(text, url, mode, fields) {
+  const configRes = await fetch(chrome.runtime.getURL("config.json"));
+  const cfg = await configRes.json();
+
+  const apiUrl = cfg.DEEPSEEK_API_URL + "/chat/completions";
+  const apiKey = cfg.DEEPSEEK_API_KEY;
+
+  const MAX_LEN = 12000;
+  const clean = (text || "").replace(/\s+/g, " ").slice(0, MAX_LEN);
+
+  const fieldsDesc = JSON.stringify(fields || [], null, 2);
+
+  const resp = await fetch(apiUrl, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: "Bearer " + apiKey,
+    },
+    body: JSON.stringify({
+      model: "PolyNex-Instruct",
+      stream: false,
+      messages: [
+        {
+          role: "system",
+          content: `
+你是一名网页信息抽取助手。
+
+【任务】
+1. 用户提供一段来自网页的文本（可能包含多条记录）。
+2. 用户还提供一个字段列表（JSON 数组），每个字段包含 name/label/type。
+3. 你需要根据字段列表，从文本中抽取结构化数据。
+
+【输出要求】
+- 如果 mode = "single"，只返回一个 JSON 对象。
+- 如果 mode = "list"，返回一个 JSON 数组，数组中每个元素是一个对象，对应一条记录。
+- key 必须严格使用字段的 name。
+- 字段缺失时用 null。
+- 不要额外添加未在字段列表中的字段。
+- 只输出 JSON（对象或数组），不要包含任何说明文字。`.trim(),
+        },
+        {
+          role: "user",
+          content: `
+网页 URL：${url}
+mode: ${mode}
+字段定义（JSON 数组）：
+${fieldsDesc}
+
+以下是待抽取的文本（可能包含多条记录）：
+${clean}
+          `.trim(),
+        },
+      ],
+    }),
+  });
+
+  if (!resp.ok) {
+    throw new Error("结构化抽取 HTTP 错误：" + resp.status);
+  }
+
+  const data = await resp.json();
+  const content = data.choices?.[0]?.message?.content?.trim() || "";
+
+  try {
+    const json = JSON.parse(content);
+    return json;
+  } catch (err) {
+    console.error("解析抽取结果 JSON 失败，原始内容：", content);
+    throw new Error("解析抽取结果 JSON 失败：" + err.message);
+  }
+}
 
 
 

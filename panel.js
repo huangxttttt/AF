@@ -347,6 +347,59 @@
         box-shadow: 0 10px 30px rgba(15,23,42,0.25);
       }
 
+      .ds-page-summary-wrapper {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 10px 16px 0;
+        background: transparent;
+        z-index: 9999;
+      }
+
+      .ds-page-summary-card {
+        max-width: 960px;
+        margin: 0 auto 8px;
+        padding: 10px 14px;
+        background: #f9fafb;
+        border-radius: 12px;
+        border: 1px solid rgba(148,163,184,0.6);
+        box-shadow: 0 10px 30px rgba(15,23,42,0.08);
+        font-size: 13px;
+        line-height: 1.6;
+        color: #111827;
+      }
+
+      .ds-page-summary-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-bottom: 4px;
+      }
+
+      .ds-page-summary-title {
+        font-size: 12px;
+        font-weight: 600;
+        color: #1d4ed8;
+      }
+
+      .ds-page-summary-close {
+        border: none;
+        background: transparent;
+        cursor: pointer;
+        font-size: 14px;
+        line-height: 1;
+        color: #9ca3af;
+      }
+
+      .ds-page-summary-close:hover {
+        color: #4b5563;
+      }
+
+      .ds-page-summary-body {
+        font-size: 13px;
+        color: #111827;
+        white-space: pre-wrap;
+      }
     `;
     document.head.appendChild(style);
   }
@@ -359,6 +412,36 @@
     "世界那么大，开心一点不亏！",
     "越自律，越自由！",
   ];
+
+
+    // ====== 结构化抽取状态 ======
+  let structuredRegion = null; // { selector, html, text, mode, elementsCount }
+
+  // 存放字段配置 JSON（字符串）和抽取结果 JSON（字符串），方便用户编辑
+  let structuredFieldsJson = "";
+  let structuredResultJson = "";
+
+
+  // ====== 当前页图片/表格缓存 ======
+  let detectedImages = [];
+  let detectedTables = [];
+
+  // ====== 选区高亮相关 ======
+  let selecting = false;
+  let lastHighlighted = null;
+  let selectionTip = null;
+  let selectionStyle = null;
+  let overlay = document.getElementById("random-demo-overlay");
+  
+    // ====== 自动翻译模式状态 ======
+  let autoTranslating = false;
+  let autoTranslateFrame = null; // 页面外框
+  let autoTranslateTip = null;   // 顶部提示条
+  let translateQueue = [];
+  let translatingBlock = false;
+  let lastScanTime = 0;
+  let scanTimer = null;
+
 
   function clearOldTimer() {
     if (window.__random_demo_timer) {
@@ -406,26 +489,53 @@
       }
     );
   }
-
-  // ====== 当前页图片/表格缓存 ======
-  let detectedImages = [];
-  let detectedTables = [];
-
-  // ====== 选区高亮相关 ======
-  let selecting = false;
-  let lastHighlighted = null;
-  let selectionTip = null;
-  let selectionStyle = null;
-  let overlay = document.getElementById("random-demo-overlay");
   
-    // ====== 自动翻译模式状态 ======
-  let autoTranslating = false;
-  let autoTranslateFrame = null; // 页面外框
-  let autoTranslateTip = null;   // 顶部提示条
-  let translateQueue = [];
-  let translatingBlock = false;
-  let lastScanTime = 0;
-  let scanTimer = null;
+// 根据 locator 返回更“聪明”的节点列表：
+// 1. 先用 locator 本身匹配；
+// 2. 如果只匹配到 1 个元素，尝试把它当容器，取它的直接子元素作为列表项。
+function resolveNodesByLocator(locator) {
+  const trimmed = (locator || "").trim();
+  if (!trimmed) return [];
+
+  let nodes = [];
+  try {
+    nodes = Array.from(document.querySelectorAll(trimmed));
+  } catch {
+    nodes = [];
+  }
+
+  // 如果命中多个，直接按原样当列表
+  if (nodes.length > 1) {
+    return nodes;
+  }
+
+  // 只命中 1 个，尝试把它当“列表容器”
+  if (nodes.length === 1) {
+    const root = nodes[0];
+
+    // 只看直接子元素，避免把所有孙子重孙都选进来
+    const directChildren = Array.from(
+      root.querySelectorAll(
+        ":scope > li, :scope > div, :scope > article, :scope > tr"
+      )
+    ).filter((el) => {
+      // 简单过滤一下空内容的节点
+      const t = (el.innerText || el.textContent || "").trim();
+      return t.length > 0;
+    });
+
+    if (directChildren.length > 1) {
+      // 发现明显是一个“列表”
+      return directChildren;
+    }
+
+    // 否则还是当成单个节点用
+    return [root];
+  }
+
+  // 一个都没匹配到
+  return [];
+}
 
 
   // ================== 工具函数：显示文本区域 ==================
@@ -441,6 +551,65 @@
     }
     pre.textContent = text;
   }
+  
+    // ================== 页面头部总结卡片 ==================
+  function getOrCreatePageSummaryBody() {
+    // wrapper：包住卡片的最外层，插在 body 最前面
+    let wrapper = document.getElementById("__ai_page_summary_wrapper");
+    let bodyEl;
+
+    if (wrapper) {
+      bodyEl = wrapper.querySelector(".ds-page-summary-body");
+      if (!bodyEl) {
+        bodyEl = document.createElement("div");
+        bodyEl.className = "ds-page-summary-body";
+        wrapper.appendChild(bodyEl);
+      }
+    } else {
+      wrapper = document.createElement("div");
+      wrapper.id = "__ai_page_summary_wrapper";
+      wrapper.className = "ds-page-summary-wrapper";
+
+      const card = document.createElement("div");
+      card.className = "ds-page-summary-card";
+
+      const header = document.createElement("div");
+      header.className = "ds-page-summary-header";
+
+      const title = document.createElement("div");
+      title.className = "ds-page-summary-title";
+      title.textContent = "AI 总结本页";
+
+      const closeBtn = document.createElement("button");
+      closeBtn.className = "ds-page-summary-close";
+      closeBtn.innerHTML = "✕";
+      closeBtn.addEventListener("click", () => {
+        wrapper.remove();
+      });
+
+      header.appendChild(title);
+      header.appendChild(closeBtn);
+
+      bodyEl = document.createElement("div");
+      bodyEl.className = "ds-page-summary-body";
+      bodyEl.textContent = "AI 正在总结本页内容…";
+
+      card.appendChild(header);
+      card.appendChild(bodyEl);
+      wrapper.appendChild(card);
+
+      // 插入到 body 顶部
+      const body = document.body || document.documentElement;
+      if (body.firstChild) {
+        body.insertBefore(wrapper, body.firstChild);
+      } else {
+        body.appendChild(wrapper);
+      }
+    }
+
+    return bodyEl;
+  }
+
 
   // 生成简单 CSS 选择器
   function getCssSelector(el) {
@@ -603,7 +772,7 @@
   }
   
   
-    function startAutoTranslateMode() {
+  function startAutoTranslateMode() {
     if (autoTranslating) return;
     autoTranslating = true;
     window.__aiAutoTranslateEnabled = true;
@@ -710,6 +879,7 @@
     if (!selecting) return;
     const target = e.target;
 
+    // 点到面板/提示条本身就忽略
     if (overlay && overlay.contains(target)) return;
     if (selectionTip && selectionTip.contains(target)) return;
 
@@ -717,26 +887,41 @@
     e.stopPropagation();
 
     const el = target;
-    const html = el.outerHTML;
+    const html = el.outerHTML || "";
+    const text = el.innerText || el.textContent || "";
     const locator = getCssSelector(el);
 
     console.log("选中元素 CSS：", locator);
 
+    // 1）保存结构化抽取的基础信息
+    structuredRegion = {
+      selector: locator,
+      html,
+      text,
+      mode: "single",
+      elementsCount: 1,
+    };
+
+    // 2）预览选中区域 HTML
     showTextInPanel(html);
 
-    // 自动写入 locator 输入框
+    // 3）自动写入 locator 输入框
     if (window.__panel_locator_input) {
       window.__panel_locator_input.value = locator;
     }
 
-    uploadHtml({
-      html,
-      locator,
-      selectionType: "element",
-    });
+    // 4）提示用户下一步动作
+    const statusBar = document.getElementById("random-demo-status-bar");
+    if (statusBar) {
+      statusBar.style.color = "#6b7280";
+      statusBar.textContent =
+        "已选中区域，可在下方使用 AI 分析字段并抽取结构化数据。";
+    }
 
+    // 结束选区模式，恢复面板
     stopSelectionMode(true);
   }
+
 
   function handleKeydown(e) {
     if (!selecting) return;
@@ -824,14 +1009,47 @@
       return;
     }
 
-    highlightElement(el);
+       // 用智能解析，支持“外层 div 包裹列表”的情况
+    const nodes = resolveNodesByLocator(trimmed);
+    const count = nodes.length;
+
+    const targetEl =  el;
+    if (!targetEl) {
+      alert("根据该选择器未找到元素：\n" + trimmed);
+      return;
+    }
+
+    // 高亮第一个匹配元素
+    highlightElement(targetEl);
+
+    // 更新结构化抽取的基础信息
+    const html = targetEl.outerHTML || "";
+    const text = targetEl.innerText || targetEl.textContent || "";
+    structuredRegion = {
+      selector: trimmed,
+      html,
+      text,
+      mode: count > 1 ? "list" : "single",
+      elementsCount: count,
+    };
+
+    // 预览 HTML
+    showTextInPanel(html);
+
+    const statusBar = document.getElementById("random-demo-status-bar");
+    if (statusBar) {
+      statusBar.style.color = "#6b7280";
+      statusBar.textContent =
+        `已根据选择器选中区域（匹配元素数：${count}），可进行字段分析。`;
+    }
 
     try {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
+      targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
     } catch {
-      el.scrollIntoView();
+      targetEl.scrollIntoView();
     }
   }
+
 
   // ================== 本页结构分析 ==================
   function detectAndRenderSummary() {
@@ -1130,18 +1348,10 @@
     btnWrap.style.justifyContent = "flex-start";
     btnWrap.style.alignItems = "flex-start";
 
-    const showBodyBtn = document.createElement("button");
-    showBodyBtn.textContent = "上传整页内容";
-    showBodyBtn.className = "ds-btn ds-btn-outline";
-    showBodyBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const html = document.body.innerHTML || "";
-      showTextInPanel(html);
-      uploadHtml({ html, selectionType: "body" });
-    });
+
 
     const selectAreaBtn = document.createElement("button");
-    selectAreaBtn.textContent = "上传所选区域";
+    selectAreaBtn.textContent = "选择区域";
     selectAreaBtn.className = "ds-btn ds-btn-primary";
     selectAreaBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -1160,21 +1370,29 @@
       aiSummaryBtn.style.background = "#10b981";
     });
 
-    aiSummaryBtn.addEventListener("click", (e) => {
+       aiSummaryBtn.addEventListener("click", (e) => {
       e.stopPropagation();
 
       const status = document.getElementById("random-demo-status-bar");
       if (status) {
         status.style.color = "#6b7280";
-        status.textContent = "AI 正在总结…";
+        status.textContent = "AI 正在总结本页内容…";
       }
 
       const pageText = document.body?.innerText || "";
       const url = location.href;
 
-      // 清空面板并拿到 pre
-      showTextInPanel("");
-      const pre = document.getElementById("random-demo-body-pre");
+      if (!pageText || !pageText.trim()) {
+        if (status) {
+          status.style.color = "#dc2626";
+          status.textContent = "当前页面没有可总结的文本。";
+        }
+        return;
+      }
+
+      // 在页面头部创建/复用一个总结卡片
+      const summaryBody = getOrCreatePageSummaryBody();
+      summaryBody.textContent = ""; // 清空旧内容
 
       const port = chrome.runtime.connect({ name: "ai-stream" });
 
@@ -1184,10 +1402,14 @@
         url,
       });
 
+      let firstChunk = true;
+
       port.onMessage.addListener((msg) => {
         if (msg.delta) {
-          pre.textContent += msg.delta;
-          pre.scrollTop = pre.scrollHeight;
+          if (firstChunk) {
+            firstChunk = false;
+          }
+          summaryBody.textContent += msg.delta;
         } else if (msg.done) {
           if (status) {
             status.style.color = "#16a34a";
@@ -1198,9 +1420,10 @@
           } catch {}
         } else if (msg.error) {
           console.error("AI 流错误：", msg.error);
+          summaryBody.textContent = "AI 总结失败：" + msg.error;
           if (status) {
             status.style.color = "#dc2626";
-            status.textContent = "AI 错误：" + msg.error;
+            status.textContent = "AI 总结失败：" + msg.error;
           }
           try {
             port.disconnect();
@@ -1208,6 +1431,7 @@
         }
       });
     });
+
 	
 	const aiTranslateBtn = document.createElement("button");
     aiTranslateBtn.textContent = "AI翻译";
@@ -1228,13 +1452,326 @@
     });
 
 
-    btnWrap.appendChild(showBodyBtn);
     btnWrap.appendChild(selectAreaBtn);
     btnWrap.appendChild(aiSummaryBtn);
 	btnWrap.appendChild(aiTranslateBtn); // 新增这一行
     box.appendChild(btnWrap);
 
+// ====== 结构化抽取区域：字段 JSON + 结果 JSON ======
+    const structTitle = document.createElement("div");
+    structTitle.style.fontSize = "13px";
+    structTitle.style.fontWeight = "600";
+    structTitle.style.margin = "8px 0 4px";
+    structTitle.textContent = "结构化抽取（选区 → 字段 → JSON）";
+    box.appendChild(structTitle);
+
+    const structHint = document.createElement("div");
+    structHint.style.fontSize = "11px";
+    structHint.style.color = "#6b7280";
+    structHint.style.marginBottom = "6px";
+    structHint.textContent =
+      "步骤：1) 点击“上传所选区域”选择 DOM；2) 可编辑上方选择器；3) AI 分析字段；4) 抽取 JSON；5) 上传结构化数据。";
+    box.appendChild(structHint);
+
+    // 按钮行：AI 分析字段 / 抽取数据 / 上传
+    const structBtnRow = document.createElement("div");
+    structBtnRow.className = "ds-row";
+    structBtnRow.style.marginBottom = "6px";
+
+    const aiFieldBtn = document.createElement("button");
+    aiFieldBtn.className = "ds-btn ds-btn-outline";
+    aiFieldBtn.textContent = "AI 分析可提取字段";
+
+    const extractBtn = document.createElement("button");
+    extractBtn.className = "ds-btn ds-btn-outline";
+    extractBtn.textContent = "根据字段抽取数据";
+
+    const uploadStructBtn = document.createElement("button");
+    uploadStructBtn.className = "ds-btn ds-btn-primary";
+    uploadStructBtn.textContent = "上传结构化数据";
+
+    structBtnRow.appendChild(aiFieldBtn);
+    structBtnRow.appendChild(extractBtn);
+    structBtnRow.appendChild(uploadStructBtn);
+    box.appendChild(structBtnRow);
+
+    // 字段配置 JSON 文本框
+    const fieldLabel = document.createElement("div");
+    fieldLabel.style.fontSize = "11px";
+    fieldLabel.style.color = "#6b7280";
+    fieldLabel.style.marginBottom = "2px";
+    fieldLabel.textContent =
+      "字段配置（JSON 数组，可手工编辑，例如 [{\"name\":\"title\",\"label\":\"标题\",\"type\":\"string\"}]）：";
+    box.appendChild(fieldLabel);
+
+    const fieldTextarea = document.createElement("textarea");
+    fieldTextarea.id = "__ds_field_config";
+    fieldTextarea.className = "ds-textarea";
+    fieldTextarea.rows = 4;
+    fieldTextarea.placeholder = "点击“AI 分析可提取字段”自动生成，或在此手动编辑字段列表 JSON。";
+    box.appendChild(fieldTextarea);
+
+    // 抽取结果 JSON 文本框
+    const resultLabel = document.createElement("div");
+    resultLabel.style.fontSize = "11px";
+    resultLabel.style.color = "#6b7280";
+    resultLabel.style.margin = "6px 0 2px";
+    resultLabel.textContent =
+      "抽取结果（JSON 对象或数组，可手工微调）：";
+    box.appendChild(resultLabel);
+
+    const resultTextarea = document.createElement("textarea");
+    resultTextarea.id = "__ds_struct_result";
+    resultTextarea.className = "ds-textarea";
+    resultTextarea.rows = 4;
+    resultTextarea.placeholder = "点击“根据字段抽取数据”后在此查看/编辑抽取结果 JSON。";
+    box.appendChild(resultTextarea);
     contentWrapper.appendChild(box);
+	
+    // ====== 按钮事件：AI 字段分析 ======
+    aiFieldBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      if (!structuredRegion) {
+        alert("请先点击“上传所选区域”，在页面中选择一个区域。");
+        return;
+      }
+
+      // 以当前 locator 输入框为准
+      const locatorValue =
+        (window.__panel_locator_input &&
+          window.__panel_locator_input.value.trim()) ||
+        structuredRegion.selector ||
+        "";
+
+      if (!locatorValue) {
+        alert("没有可用的选择器，请先选择区域或输入选择器。");
+        return;
+      }
+
+            // 用统一的解析逻辑，支持“外层 div 包裹列表”
+      const nodes = resolveNodesByLocator(locatorValue);
+      const count = nodes.length || 1;
+      const mode = count > 1 ? "list" : "single";
+
+
+      let sampleText = "";
+      if (count > 1) {
+        // 列表模式：取前几条作为样本
+        sampleText = nodes
+          .slice(0, 3)
+          .map((el) => el.innerText || el.textContent || "")
+          .join("\n----------------\n");
+      } else {
+        sampleText =
+          (nodes[0] && (nodes[0].innerText || nodes[0].textContent)) ||
+          structuredRegion.text ||
+          "";
+      }
+
+      if (!sampleText.trim()) {
+        alert("选中区域中没有可用文本。");
+        return;
+      }
+
+      const statusBar = document.getElementById("random-demo-status-bar");
+      if (statusBar) {
+        statusBar.style.color = "#6b7280";
+        statusBar.textContent = "AI 正在分析可提取字段…";
+      }
+
+      chrome.runtime.sendMessage(
+        {
+          type: "AI_SUGGEST_FIELDS",
+          text: sampleText,
+          url: location.href,
+          mode,
+        },
+        (resp) => {
+          if (!resp) {
+            alert("AI 字段分析失败：后台未响应");
+            return;
+          }
+          if (!resp.ok) {
+            alert("AI 字段分析失败：" + (resp.error || "未知错误"));
+            if (statusBar) {
+              statusBar.style.color = "#dc2626";
+              statusBar.textContent =
+                "AI 字段分析失败：" + (resp.error || "未知错误");
+            }
+            return;
+          }
+
+          structuredFieldsJson = JSON.stringify(resp.fields || [], null, 2);
+          fieldTextarea.value = structuredFieldsJson;
+
+          if (statusBar) {
+            statusBar.style.color = "#16a34a";
+            statusBar.textContent = "AI 字段分析完成，可在字段配置中编辑。";
+          }
+        }
+      );
+    });
+
+    // ====== 按钮事件：根据字段抽取数据 ======
+    extractBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      if (!structuredRegion) {
+        alert("请先选择区域，并完成字段配置。");
+        return;
+      }
+
+      const locatorValue =
+        (window.__panel_locator_input &&
+          window.__panel_locator_input.value.trim()) ||
+        structuredRegion.selector ||
+        "";
+
+      if (!locatorValue) {
+        alert("没有可用的选择器。");
+        return;
+      }
+
+      // 解析字段配置 JSON
+      let fields;
+      try {
+        const raw = fieldTextarea.value || structuredFieldsJson || "[]";
+        fields = JSON.parse(raw);
+      } catch (err) {
+        alert("字段配置 JSON 解析失败，请检查格式是否正确。\n" + err);
+        return;
+      }
+
+           // 用统一的解析逻辑，避免 div 包住列表时只有 1 个节点的问题
+      const nodes = resolveNodesByLocator(locatorValue);
+      const count = nodes.length || 1;
+      console.log("extract list count:", count, nodes);
+      const mode = count > 1 ? "list" : "single";
+
+	  
+      let regionText = "";
+      if (mode === "list") {
+        // 列表：把前 N 条的文本拼在一起，交给后端按列表语义处理
+        regionText = nodes
+          .map((el) => el.innerText || el.textContent || "")
+          .join("\n====================\n");
+      } else {
+        regionText =
+          (nodes[0] && (nodes[0].innerText || nodes[0].textContent)) ||
+          structuredRegion.text ||
+          "";
+      }
+
+      if (!regionText.trim()) {
+        alert("选中区域没有可用文本。");
+        return;
+      }
+
+      const statusBar = document.getElementById("random-demo-status-bar");
+      if (statusBar) {
+        statusBar.style.color = "#6b7280";
+        statusBar.textContent = "AI 正在根据字段抽取结构化数据…";
+      }
+
+      chrome.runtime.sendMessage(
+        {
+          type: "AI_EXTRACT_STRUCTURED",
+          text: regionText,
+          url: location.href,
+          mode,
+          fields,
+        },
+        (resp) => {
+          if (!resp) {
+            alert("AI 抽取失败：后台未响应");
+            return;
+          }
+          if (!resp.ok) {
+            alert("AI 抽取失败：" + (resp.error || "未知错误"));
+            if (statusBar) {
+              statusBar.style.color = "#dc2626";
+              statusBar.textContent =
+                "AI 抽取失败：" + (resp.error || "未知错误");
+            }
+            return;
+          }
+
+          structuredResultJson = JSON.stringify(resp.data, null, 2);
+          resultTextarea.value = structuredResultJson;
+
+          if (statusBar) {
+            statusBar.style.color = "#16a34a";
+            statusBar.textContent =
+              "AI 已抽取结构化数据，可在下方结果中查看/编辑。";
+          }
+        }
+      );
+    });
+
+    // ====== 按钮事件：上传结构化数据 ======
+    uploadStructBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      const locatorValue =
+        (window.__panel_locator_input &&
+          window.__panel_locator_input.value.trim()) ||
+        (structuredRegion && structuredRegion.selector) ||
+        "";
+
+      if (!locatorValue) {
+        alert("没有可用的选择器，无法上传。");
+        return;
+      }
+
+      // 解析字段配置
+      let fields;
+      try {
+        const raw = fieldTextarea.value || structuredFieldsJson || "[]";
+        fields = JSON.parse(raw);
+      } catch (err) {
+        alert("字段配置 JSON 解析失败，请检查格式。\n" + err);
+        return;
+      }
+
+      // 解析结果 JSON
+      let data;
+      try {
+        const raw = resultTextarea.value || structuredResultJson || "";
+        if (!raw.trim()) {
+          alert("还没有结构化结果，请先抽取数据。");
+          return;
+        }
+        data = JSON.parse(raw);
+      } catch (err) {
+        alert("结果 JSON 解析失败，请检查格式。\n" + err);
+        return;
+      }
+
+      const payload = {
+        mode:
+          (structuredRegion && structuredRegion.mode) ||
+          (Array.isArray(data) ? "list" : "single"),
+        selector: locatorValue,
+        fields,
+        data,
+        url: location.href,
+        extractedAt: new Date().toISOString(),
+      };
+
+      const statusBar = document.getElementById("random-demo-status-bar");
+      if (statusBar) {
+        statusBar.style.color = "#6b7280";
+        statusBar.textContent = "正在上传结构化数据…";
+      }
+
+      uploadHtml({
+        html: JSON.stringify(payload),
+        locator: locatorValue,
+        selectionType: "structured-json",
+      });
+    });
+
 
     // ========== Tab2：自动巡检 ==========
     const extraBox = document.createElement("div");
