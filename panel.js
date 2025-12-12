@@ -1555,24 +1555,41 @@ function resolveNodesByLocator(locator) {
       const mode = count > 1 ? "list" : "single";
 
 
+      const compress = (str, maxLen = 1200) =>
+        (str || "")
+          .replace(/\s+/g, " ")
+          .trim()
+          .slice(0, maxLen);
+
       let sampleText = "";
       if (count > 1) {
-        // 列表模式：取前几条作为样本
+        // 列表模式：取前几条作为样本，并标注序号，帮助大模型理解列表结构
         sampleText = nodes
           .slice(0, 3)
-          .map((el) => el.innerText || el.textContent || "")
+          .map((el, idx) => {
+            const text = compress(el.innerText || el.textContent || "", 800);
+            return `[第${idx + 1}项] ${text}`;
+          })
           .join("\n----------------\n");
       } else {
         sampleText =
-          (nodes[0] && (nodes[0].innerText || nodes[0].textContent)) ||
-          structuredRegion.text ||
-          "";
+          compress(
+            (nodes[0] && (nodes[0].innerText || nodes[0].textContent)) ||
+              structuredRegion.text ||
+              "",
+            1500
+          );
       }
 
       if (!sampleText.trim()) {
         alert("选中区域中没有可用文本。");
         return;
       }
+
+      const htmlPreview = compress(
+        (nodes[0] && nodes[0].outerHTML) || structuredRegion.html || "",
+        2000
+      );
 
       const statusBar = document.getElementById("random-demo-status-bar");
       if (statusBar) {
@@ -1586,6 +1603,8 @@ function resolveNodesByLocator(locator) {
           text: sampleText,
           url: location.href,
           mode,
+          elementsCount: count,
+          htmlPreview,
         },
         (resp) => {
           if (!resp) {

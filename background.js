@@ -114,10 +114,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === "AI_SUGGEST_FIELDS") {
     const text = message.text || "";
     const url = message.url || "";
+    const mode = message.mode || "single";
+    const elementsCount = Number(message.elementsCount) || 1;
+    const htmlPreview = message.htmlPreview || "";
 
     (async () => {
       try {
-        const fields = await callDeepseekSuggestFields(text, url);
+        const fields = await callDeepseekSuggestFields(
+          text,
+          url,
+          mode,
+          elementsCount,
+          htmlPreview
+        );
         sendResponse({ ok: true, fields });
       } catch (err) {
         console.error("AI_SUGGEST_FIELDS 调用失败：", err);
@@ -388,7 +397,13 @@ async function callDeepseekSummaryStream(pageText, url, port) {
   port.disconnect();
 }
 
-async function callDeepseekSuggestFields(text, url) {
+async function callDeepseekSuggestFields(
+  text,
+  url,
+  mode = "single",
+  elementsCount = 1,
+  htmlPreview = ""
+) {
   const configRes = await fetch(chrome.runtime.getURL("config.json"));
   const cfg = await configRes.json();
 
@@ -397,6 +412,9 @@ async function callDeepseekSuggestFields(text, url) {
 
   const MAX_LEN = 4000;
   const clean = (text || "").replace(/\s+/g, " ").slice(0, MAX_LEN);
+  const cleanHtml = (htmlPreview || "")
+    .replace(/\s+/g, " ")
+    .slice(0, 2000);
 
   const resp = await fetch(apiUrl, {
     method: "POST",
@@ -432,7 +450,13 @@ async function callDeepseekSuggestFields(text, url) {
         },
         {
           role: "user",
-          content: `网页 URL：${url}\n\n选区文本示例：\n${clean}`,
+          content: `网页 URL：${url}
+mode: ${mode}（匹配元素数：${elementsCount}）
+选区文本示例：
+${clean}
+
+（可选）首个节点 HTML 预览：
+${cleanHtml}`,
         },
       ],
     }),
