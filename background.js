@@ -528,14 +528,22 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
   if (!fields?.length) {
     throw new Error("字段列表为空，无法进行结构化抽取");
   }
-
-  const requestBody = (payloadText) => ({
-    model: "PolyNex-Instruct",
-    stream: false,
-    messages: [
-      {
-        role: "system",
-        content: `
+  
+  const resp = await withTimeout(
+    (signal) =>
+      fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + apiKey,
+        },
+        body: JSON.stringify({
+          model: "PolyNex-Instruct",
+          stream: false,
+          messages: [
+            {
+              role: "system",
+              content: `
 你是一名网页信息抽取助手。
 
 【任务】
@@ -550,21 +558,26 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
 - 字段缺失时用 null。
 - 不要额外添加未在字段列表中的字段。
 - 只输出 JSON（对象或数组），不要包含任何说明文字。`.trim(),
-      },
-      {
-        role: "user",
-        content: `
+
+            },
+            {
+              role: "user",
+              content: `
 网页 URL：${url}
 mode: ${mode}
 字段定义（JSON 数组）：
 ${fieldsDesc}
-
 以下是待抽取的文本（可能包含多条记录）：
 ${payloadText}
           `.trim(),
-      },
-    ],
-  });
+            },
+          ],
+        }),
+        signal,
+      }),
+    25000,
+    "结构化抽取请求超时"
+  );
 
   async function sendRequest(payloadText) {
     return withTimeout(
