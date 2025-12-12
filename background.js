@@ -518,6 +518,9 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
   const apiKey = cfg.DEEPSEEK_API_KEY;
 
   const MAX_LEN = 12000;
+  const RETRY_LEN = 6000;
+  const TIMEOUT_MS = 40000;
+
   const clean = (text || "").replace(/\s+/g, " ").slice(0, MAX_LEN);
 
   const fieldsDesc = JSON.stringify(fields || [], null, 2);
@@ -525,7 +528,7 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
   if (!fields?.length) {
     throw new Error("字段列表为空，无法进行结构化抽取");
   }
-
+  
   const resp = await withTimeout(
     (signal) =>
       fetch(apiUrl, {
@@ -555,6 +558,7 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
 - 字段缺失时用 null。
 - 不要额外添加未在字段列表中的字段。
 - 只输出 JSON（对象或数组），不要包含任何说明文字。`.trim(),
+
             },
             {
               role: "user",
@@ -563,9 +567,8 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
 mode: ${mode}
 字段定义（JSON 数组）：
 ${fieldsDesc}
-
 以下是待抽取的文本（可能包含多条记录）：
-${clean}
+${payloadText}
           `.trim(),
             },
           ],
@@ -575,6 +578,41 @@ ${clean}
     25000,
     "结构化抽取请求超时"
   );
+
+  async function sendRequest(payloadText) {
+    return withTimeout(
+      (signal) =>
+        fetch(apiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + apiKey,
+          },
+          body: JSON.stringify(requestBody(payloadText)),
+          signal,
+        }),
+      TIMEOUT_MS,
+      "结构化抽取请求超时"
+    );
+  }
+
+  let resp;
+
+  try {
+    resp = await sendRequest(clean);
+  } catch (err) {
+    const isTimeout = /超时/.test(String(err));
+    const canRetry = clean.length > RETRY_LEN;
+
+    if (!isTimeout || !canRetry) throw err;
+
+    console.warn(
+      `结构化抽取首次超时，使用更短上下文重试（${RETRY_LEN} 字符）`
+    );
+
+    const shorter = clean.slice(0, RETRY_LEN);
+    resp = await sendRequest(shorter);
+  }
 
   if (!resp.ok) {
     throw new Error("结构化抽取 HTTP 错误：" + resp.status);
