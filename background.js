@@ -407,6 +407,7 @@ function startAutoCrawlInNewTab(currentTabId, urls, cssSelector) {
 }
 
 
+
 // ================== Port: 流式总结/翻译 ==================
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name === "ai-auto-summary") {
