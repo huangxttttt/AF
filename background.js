@@ -2,6 +2,7 @@
 
 // ================== 配置相关：加载 config.json ==================
 let API_URL = null;
+let cachedConfigPromise = null;
 
 function loadConfig() {
   return fetch(chrome.runtime.getURL("config.json"))
@@ -15,8 +16,60 @@ function loadConfig() {
     });
 }
 
+function loadConfigJson() {
+  if (!cachedConfigPromise) {
+    cachedConfigPromise = fetch(chrome.runtime.getURL("config.json"))
+      .then((res) => res.json())
+      .catch((err) => {
+        cachedConfigPromise = null;
+        throw err;
+      });
+  }
+
+  return cachedConfigPromise;
+}
+
 function ensureApiUrlReady() {
   return API_URL ? Promise.resolve(API_URL) : loadConfig().then(() => API_URL);
+}
+
+function withTimeout(promise, ms, errorMessage) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+
+  const wrapped = promise(controller.signal)
+    .finally(() => clearTimeout(timer))
+    .catch((err) => {
+      if (err?.name === "AbortError") {
+        throw new Error(errorMessage || `请求超时（>${ms}ms）`);
+      }
+      throw err;
+    });
+
+  return wrapped;
+}
+
+function tryParseJsonContent(content) {
+  const trimmed = (content || "").trim();
+
+  if (!trimmed) return null;
+
+  const cleaned = trimmed
+    .replace(/^```json\s*/i, "")
+    .replace(/```\s*$/i, "");
+
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    const jsonMatch = cleaned.match(/(\{[\s\S]*\}|\[[\s\S]*\])/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[1]);
+      } catch {}
+    }
+    console.error("JSON 解析失败，原始内容：", content);
+    throw new Error("解析 JSON 失败：" + err.message);
+  }
 }
 
 // 初始化加载一次
@@ -389,8 +442,7 @@ async function callDeepseekSummaryStream(pageText, url, port) {
 }
 
 async function callDeepseekSuggestFields(text, url) {
-  const configRes = await fetch(chrome.runtime.getURL("config.json"));
-  const cfg = await configRes.json();
+  const cfg = await loadConfigJson();
 
   const apiUrl = cfg.DEEPSEEK_API_URL + "/chat/completions";
   const apiKey = cfg.DEEPSEEK_API_KEY;
@@ -398,19 +450,21 @@ async function callDeepseekSuggestFields(text, url) {
   const MAX_LEN = 4000;
   const clean = (text || "").replace(/\s+/g, " ").slice(0, MAX_LEN);
 
-  const resp = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + apiKey,
-    },
-    body: JSON.stringify({
-      model: "PolyNex-Instruct",
-      stream: false,
-      messages: [
-        {
-          role: "system",
-          content: `
+  const resp = await withTimeout(
+    (signal) =>
+      fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + apiKey,
+        },
+        body: JSON.stringify({
+          model: "PolyNex-Instruct",
+          stream: false,
+          messages: [
+            {
+              role: "system",
+              content: `
 你是一名结构化抽取的字段设计助手。
 
 【任务】
@@ -429,14 +483,18 @@ async function callDeepseekSuggestFields(text, url) {
   {"name":"price","label":"价格","type":"number"}
 ]
 不要添加任何多余说明文字。`.trim(),
-        },
-        {
-          role: "user",
-          content: `网页 URL：${url}\n\n选区文本示例：\n${clean}`,
-        },
-      ],
-    }),
-  });
+            },
+            {
+              role: "user",
+              content: `网页 URL：${url}\n\n选区文本示例：\n${clean}`,
+            },
+          ],
+        }),
+        signal,
+      }),
+    20000,
+    "字段分析请求超时"
+  );
 
   if (!resp.ok) {
     throw new Error("字段分析 HTTP 错误：" + resp.status);
@@ -445,21 +503,16 @@ async function callDeepseekSuggestFields(text, url) {
   const data = await resp.json();
   const content = data.choices?.[0]?.message?.content?.trim() || "[]";
 
-  try {
-    const json = JSON.parse(content);
-    if (!Array.isArray(json)) {
-      throw new Error("返回内容不是数组");
-    }
-    return json;
-  } catch (err) {
-    console.error("解析字段 JSON 失败，原始内容：", content);
-    throw new Error("解析字段 JSON 失败：" + err.message);
+  const json = tryParseJsonContent(content);
+  if (!Array.isArray(json)) {
+    throw new Error("返回内容不是数组");
   }
+
+  return json;
 }
 
 async function callDeepseekExtractStructured(text, url, mode, fields) {
-  const configRes = await fetch(chrome.runtime.getURL("config.json"));
-  const cfg = await configRes.json();
+  const cfg = await loadConfigJson();
 
   const apiUrl = cfg.DEEPSEEK_API_URL + "/chat/completions";
   const apiKey = cfg.DEEPSEEK_API_KEY;
@@ -469,19 +522,25 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
 
   const fieldsDesc = JSON.stringify(fields || [], null, 2);
 
-  const resp = await fetch(apiUrl, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: "Bearer " + apiKey,
-    },
-    body: JSON.stringify({
-      model: "PolyNex-Instruct",
-      stream: false,
-      messages: [
-        {
-          role: "system",
-          content: `
+  if (!fields?.length) {
+    throw new Error("字段列表为空，无法进行结构化抽取");
+  }
+
+  const resp = await withTimeout(
+    (signal) =>
+      fetch(apiUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + apiKey,
+        },
+        body: JSON.stringify({
+          model: "PolyNex-Instruct",
+          stream: false,
+          messages: [
+            {
+              role: "system",
+              content: `
 你是一名网页信息抽取助手。
 
 【任务】
@@ -496,10 +555,10 @@ async function callDeepseekExtractStructured(text, url, mode, fields) {
 - 字段缺失时用 null。
 - 不要额外添加未在字段列表中的字段。
 - 只输出 JSON（对象或数组），不要包含任何说明文字。`.trim(),
-        },
-        {
-          role: "user",
-          content: `
+            },
+            {
+              role: "user",
+              content: `
 网页 URL：${url}
 mode: ${mode}
 字段定义（JSON 数组）：
@@ -508,10 +567,14 @@ ${fieldsDesc}
 以下是待抽取的文本（可能包含多条记录）：
 ${clean}
           `.trim(),
-        },
-      ],
-    }),
-  });
+            },
+          ],
+        }),
+        signal,
+      }),
+    25000,
+    "结构化抽取请求超时"
+  );
 
   if (!resp.ok) {
     throw new Error("结构化抽取 HTTP 错误：" + resp.status);
@@ -520,13 +583,8 @@ ${clean}
   const data = await resp.json();
   const content = data.choices?.[0]?.message?.content?.trim() || "";
 
-  try {
-    const json = JSON.parse(content);
-    return json;
-  } catch (err) {
-    console.error("解析抽取结果 JSON 失败，原始内容：", content);
-    throw new Error("解析抽取结果 JSON 失败：" + err.message);
-  }
+  const json = tryParseJsonContent(content);
+  return json;
 }
 
 
