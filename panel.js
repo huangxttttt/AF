@@ -537,6 +537,40 @@ function resolveNodesByLocator(locator) {
   return [];
 }
 
+function normalizeToArray(x) {
+  if (Array.isArray(x)) return x;
+  if (x && typeof x === "object") return [x];
+  return [];
+}
+
+
+// 把很多节点的文本拆成多个 chunk，避免一次发太大导致超时/断连
+function buildChunksFromNodes(nodes, maxChars = 6000, maxItems = 25) {
+  const chunks = [];
+  let buf = [];
+  let len = 0;
+
+  for (const el of nodes) {
+    const t = (el.innerText || el.textContent || "").trim();
+    if (!t) continue;
+
+    // 估算本条加入后的长度（包含分隔符）
+    const extra = (buf.length ? "\n====================\n" : "") + t;
+
+    if (buf.length >= maxItems || len + extra.length > maxChars) {
+      if (buf.length) chunks.push(buf.join("\n====================\n"));
+      buf = [t];
+      len = t.length;
+    } else {
+      buf.push(t);
+      len += extra.length;
+    }
+  }
+
+  if (buf.length) chunks.push(buf.join("\n====================\n"));
+  return chunks;
+}
+
 
   // ================== 工具函数：显示文本区域 ==================
   function showTextInPanel(text) {
@@ -1602,7 +1636,8 @@ function resolveNodesByLocator(locator) {
             return;
           }
 
-          structuredFieldsJson = JSON.stringify(resp.fields || [], null, 2);
+          structuredFieldsJson = JSON.stringify(resp.data || resp.fields || [], null, 2);
+
           fieldTextarea.value = structuredFieldsJson;
 
           if (statusBar) {
@@ -1643,71 +1678,55 @@ function resolveNodesByLocator(locator) {
         return;
       }
 
-           // 用统一的解析逻辑，避免 div 包住列表时只有 1 个节点的问题
-      const nodes = resolveNodesByLocator(locatorValue);
-      const count = nodes.length || 1;
-      console.log("extract list count:", count, nodes);
-      const mode = count > 1 ? "list" : "single";
+         // 统一按 list：永远分批抽取（即使只有 1 个节点，也会 chunks.length === 1）
+		const nodes = resolveNodesByLocator(locatorValue);
+		const chunks = buildChunksFromNodes(nodes, 6000, 3);
 
-	  
-      let regionText = "";
-      if (mode === "list") {
-        // 列表：把前 N 条的文本拼在一起，交给后端按列表语义处理
-        regionText = nodes
-          .map((el) => el.innerText || el.textContent || "")
-          .join("\n====================\n");
-      } else {
-        regionText =
-          (nodes[0] && (nodes[0].innerText || nodes[0].textContent)) ||
-          structuredRegion.text ||
-          "";
-      }
+		if (!chunks.length) {
+		  alert("选中区域没有可用文本。");
+		  return;
+		}
 
-      if (!regionText.trim()) {
-        alert("选中区域没有可用文本。");
-        return;
-      }
+		const statusBar = document.getElementById("random-demo-status-bar");
+		if (statusBar) {
+		  statusBar.style.color = "#6b7280";
+		  statusBar.textContent = `AI 正在分批抽取…（共 ${chunks.length} 批）`;
+		}
+		
+		console.log(chunks)
+		chrome.runtime.sendMessage(
+		  {
+			type: "AI_EXTRACT_STRUCTURED_BATCH",
+			chunks,
+			url: location.href,
+			fields,
+		  },
+		  (resp) => {
+			if (!resp) {
+			  alert("AI 抽取失败：后台未响应");
+			  return;
+			}
+			if (!resp.ok) {
+			  alert("AI 抽取失败：" + (resp.error || "未知错误"));
+			  if (statusBar) {
+				statusBar.style.color = "#dc2626";
+				statusBar.textContent = "AI 抽取失败：" + (resp.error || "未知错误");
+			  }
+			  return;
+			}
 
-      const statusBar = document.getElementById("random-demo-status-bar");
-      if (statusBar) {
-        statusBar.style.color = "#6b7280";
-        statusBar.textContent = "AI 正在根据字段抽取结构化数据…";
-      }
+			structuredResultJson = JSON.stringify(resp.data, null, 2);
+			resultTextarea.value = structuredResultJson;
 
-      chrome.runtime.sendMessage(
-        {
-          type: "AI_EXTRACT_STRUCTURED",
-          text: regionText,
-          url: location.href,
-          mode,
-          fields,
-        },
-        (resp) => {
-          if (!resp) {
-            alert("AI 抽取失败：后台未响应");
-            return;
-          }
-          if (!resp.ok) {
-            alert("AI 抽取失败：" + (resp.error || "未知错误"));
-            if (statusBar) {
-              statusBar.style.color = "#dc2626";
-              statusBar.textContent =
-                "AI 抽取失败：" + (resp.error || "未知错误");
-            }
-            return;
-          }
+			if (statusBar) {
+			  statusBar.style.color = "#16a34a";
+			  statusBar.textContent = "AI 已抽取结构化数据，可在下方结果中查看/编辑。";
+			}
+		  }
+		);
 
-          structuredResultJson = JSON.stringify(resp.data, null, 2);
-          resultTextarea.value = structuredResultJson;
+      });
 
-          if (statusBar) {
-            statusBar.style.color = "#16a34a";
-            statusBar.textContent =
-              "AI 已抽取结构化数据，可在下方结果中查看/编辑。";
-          }
-        }
-      );
-    });
 
     // ====== 按钮事件：上传结构化数据 ======
     uploadStructBtn.addEventListener("click", (e) => {
@@ -1748,16 +1767,17 @@ function resolveNodesByLocator(locator) {
         return;
       }
 
-      const payload = {
-        mode:
-          (structuredRegion && structuredRegion.mode) ||
-          (Array.isArray(data) ? "list" : "single"),
-        selector: locatorValue,
-        fields,
-        data,
-        url: location.href,
-        extractedAt: new Date().toISOString(),
-      };
+      data = normalizeToArray(data);
+
+	const payload = {
+	  mode: "list",
+	  selector: locatorValue,
+	  fields,
+	  data, // 永远是数组
+	  url: location.href,
+	  extractedAt: new Date().toISOString(),
+	};
+
 
       const statusBar = document.getElementById("random-demo-status-bar");
       if (statusBar) {
