@@ -6,8 +6,7 @@
   "permissions": ["scripting", "activeTab","tabs","storage"],
   "host_permissions": [
      "http://172.23.27.133:8776/*",
-	 "https://api.deepseek.com/*",
-	 "http://172.23.27.133:8661/*"
+	 "https://api.deepseek.com/*"
   ],
   "background": {
     "service_worker": "background.js"
