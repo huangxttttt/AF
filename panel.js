@@ -32,8 +32,10 @@
         max-height: 70vh;
         display: flex;
         flex-direction: column;
-        overflow: hidden;
-
+		resize: both;         
+        overflow: auto; 
+		max-width: min(900px, 90vw);  /* 可选：上限放大 */
+        max-height: 90vh;      
         background: var(--ds-bg-glass);
         backdrop-filter: saturate(180%) blur(20px);
         border-radius: var(--ds-radius-lg);
@@ -400,6 +402,9 @@
         color: #111827;
         white-space: pre-wrap;
       }
+	  
+
+
     `;
     document.head.appendChild(style);
   }
@@ -1457,9 +1462,12 @@ function getAllRuleSelectors(el, limit = 3000) {
       overlay.remove();
       overlay = null;
     });
+	
+
 
     header.appendChild(title);
     header.appendChild(miniClose);
+  
     overlay.appendChild(header);
 
     // Tab bar
@@ -1885,26 +1893,18 @@ function getAllRuleSelectors(el, limit = 3000) {
         return;
       }
 
-            // 用统一的解析逻辑，支持“外层 div 包裹列表”
       const nodes = resolveNodesByLocator(locatorValue);
-      const count = nodes.length || 1;
-      const mode = count > 1 ? "list" : "single";
+	  const chunks = buildChunksFromNodes(nodes, 6000, 3);
 
+		if (!chunks.length) {
+		  alert("选中区域没有可用内容（HTML/TEXT）。");
+		  return;
+		}
 
-      let sampleText = "";
-      if (count > 1) {
-        // 列表模式：取前几条作为样本
-        sampleText = nodes
-          .slice(0, 3)
-          .map((el) => el.innerText || el.textContent || "")
-          .join("\n----------------\n");
-      } else {
-        sampleText =
-          (nodes[0] && (nodes[0].innerText || nodes[0].textContent)) ||
-          structuredRegion.text ||
-          "";
-      }
-
+	// 字段建议：给模型 1 个 chunk 通常就够；想更稳可以给 2 个
+	const sampleText = chunks.slice(0, 1).join("\n\n====\n\n"); 
+	const mode = nodes.length > 1 ? "list" : "single";
+	
       if (!sampleText.trim()) {
         alert("选中区域中没有可用文本。");
         return;

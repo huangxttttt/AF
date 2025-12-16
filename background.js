@@ -668,7 +668,7 @@ async function callDeepseekSuggestFields(text, url) {
         },
         {
           role: "user",
-          content: `网页 URL：${url}\n\n选区文本示例：\n${(text || "").slice(0, 8000)}`,
+          content: `网页 URL：${url}\n\n选区示例（包含 HTML 与可见文本；请特别关注 a[href], img[src] 等可抽取链接/图片字段）：\n${(text || "").slice(0, 8000)}`,
         },
       ],
     }),
