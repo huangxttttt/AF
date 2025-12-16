@@ -1509,8 +1509,114 @@ function getAllRuleSelectors(el, limit = 3000) {
 	iframe.style.border = "1px solid rgba(0,0,0,0.08)";
 	iframe.style.borderRadius = "12px";
 	iframe.loading = "lazy";
+	
 
 	aiBox.appendChild(iframe);
+	
+	const btnAIWrap = document.createElement("div");
+    btnAIWrap.className = "ds-row";
+    btnAIWrap.style.flexWrap = "wrap";
+    btnAIWrap.style.justifyContent = "flex-start";
+    btnAIWrap.style.alignItems = "flex-start";
+	
+	//ai 翻译 ai总结
+    const aiSummaryBtn = document.createElement("button");
+    aiSummaryBtn.textContent = "AI总结本页";
+    aiSummaryBtn.className = "ds-btn ds-btn-primary";
+    aiSummaryBtn.style.background = "#10b981";
+    aiSummaryBtn.style.border = "none";
+    aiSummaryBtn.addEventListener("mouseenter", () => {
+      aiSummaryBtn.style.background = "#059669";
+    });
+    aiSummaryBtn.addEventListener("mouseleave", () => {
+      aiSummaryBtn.style.background = "#10b981";
+    });
+
+       aiSummaryBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+
+      const status = document.getElementById("random-demo-status-bar");
+      if (status) {
+        status.style.color = "#6b7280";
+        status.textContent = "AI 正在总结本页内容…";
+      }
+
+      const pageText = document.body?.innerText || "";
+      const url = location.href;
+
+      if (!pageText || !pageText.trim()) {
+        if (status) {
+          status.style.color = "#dc2626";
+          status.textContent = "当前页面没有可总结的文本。";
+        }
+        return;
+      }
+
+      // 在页面头部创建/复用一个总结卡片
+      const summaryBody = getOrCreatePageSummaryBody();
+      summaryBody.textContent = ""; // 清空旧内容
+
+      const port = chrome.runtime.connect({ name: "ai-auto-summary" });
+
+      port.postMessage({
+        type: "SUMMARY_PAGE",
+        pageText,
+        url,
+      });
+
+      let firstChunk = true;
+
+      port.onMessage.addListener((msg) => {
+        if (msg.delta) {
+          if (firstChunk) {
+            firstChunk = false;
+          }
+          summaryBody.textContent += msg.delta;
+        } else if (msg.done) {
+          if (status) {
+            status.style.color = "#16a34a";
+            status.textContent = "AI 总结完成 ✓";
+          }
+          try {
+            port.disconnect();
+          } catch {}
+        } else if (msg.error) {
+          console.error("AI 流错误：", msg.error);
+          summaryBody.textContent = "AI 总结失败：" + msg.error;
+          if (status) {
+            status.style.color = "#dc2626";
+            status.textContent = "AI 总结失败：" + msg.error;
+          }
+          try {
+            port.disconnect();
+          } catch {}
+        }
+      });
+    });
+
+	
+	const aiTranslateBtn = document.createElement("button");
+    aiTranslateBtn.textContent = "AI翻译";
+    aiTranslateBtn.className = "ds-btn ds-btn-primary";
+    aiTranslateBtn.style.background = "#6366f1";
+    aiTranslateBtn.style.border = "none";
+    aiTranslateBtn.addEventListener("mouseenter", () => {
+      aiTranslateBtn.style.background = "#4f46e5";
+    });
+    aiTranslateBtn.addEventListener("mouseleave", () => {
+      aiTranslateBtn.style.background = "#6366f1";
+    });
+
+    aiTranslateBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      // 点击后直接进入翻译模式：关闭面板 + 出外框 + Esc 退出
+      startAutoTranslateMode();
+    });
+	
+	btnAIWrap.appendChild(aiSummaryBtn);
+	btnAIWrap.appendChild(aiTranslateBtn);
+	aiBox.appendChild(btnAIWrap);
+
 		
 	contentWrapper.appendChild(aiBox);
 	
@@ -1525,6 +1631,23 @@ function getAllRuleSelectors(el, limit = 3000) {
     textEl.id = "random-demo-text";
     box.appendChild(textEl);
 
+	
+
+    const structTitle = document.createElement("div");
+    structTitle.style.fontSize = "13px";
+    structTitle.style.fontWeight = "600";
+    structTitle.style.margin = "8px 0 4px";
+    structTitle.textContent = "结构化抽取（选区 → 字段 → JSON）";
+    box.appendChild(structTitle);
+
+    const structHint = document.createElement("div");
+    structHint.style.fontSize = "11px";
+    structHint.style.color = "#6b7280";
+    structHint.style.marginBottom = "6px";
+    structHint.textContent =
+      "步骤：1) 点击“选择区域”选择 DOM；2) 可编辑下方选择器；3) AI 分析字段；4) 抽取 JSON；5) 上传结构化数据。";
+    box.appendChild(structHint);
+	
     // locator + 高亮 + 保存规则
     const locatorWrap = document.createElement("div");
     locatorWrap.className = "ds-row";
@@ -1592,8 +1715,8 @@ function getAllRuleSelectors(el, limit = 3000) {
 	  showTextInPanel(html, "选区预览");
 	});
     locatorWrap.appendChild(locatorInput);
-    locatorWrap.appendChild(locatorBtn);
     locatorWrap.appendChild(previewAreaBtn);
+    locatorWrap.appendChild(locatorBtn);
     locatorWrap.appendChild(saveRuleBtn);
     box.appendChild(locatorWrap);
 
@@ -1698,131 +1821,7 @@ function getAllRuleSelectors(el, limit = 3000) {
       startSelectionMode();
     });
 
-	
-
-   
-    const aiSummaryBtn = document.createElement("button");
-    aiSummaryBtn.textContent = "AI总结本页";
-    aiSummaryBtn.className = "ds-btn ds-btn-primary";
-    aiSummaryBtn.style.background = "#10b981";
-    aiSummaryBtn.style.border = "none";
-    aiSummaryBtn.addEventListener("mouseenter", () => {
-      aiSummaryBtn.style.background = "#059669";
-    });
-    aiSummaryBtn.addEventListener("mouseleave", () => {
-      aiSummaryBtn.style.background = "#10b981";
-    });
-
-       aiSummaryBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-
-      const status = document.getElementById("random-demo-status-bar");
-      if (status) {
-        status.style.color = "#6b7280";
-        status.textContent = "AI 正在总结本页内容…";
-      }
-
-      const pageText = document.body?.innerText || "";
-      const url = location.href;
-
-      if (!pageText || !pageText.trim()) {
-        if (status) {
-          status.style.color = "#dc2626";
-          status.textContent = "当前页面没有可总结的文本。";
-        }
-        return;
-      }
-
-      // 在页面头部创建/复用一个总结卡片
-      const summaryBody = getOrCreatePageSummaryBody();
-      summaryBody.textContent = ""; // 清空旧内容
-
-      const port = chrome.runtime.connect({ name: "ai-auto-summary" });
-
-      port.postMessage({
-        type: "SUMMARY_PAGE",
-        pageText,
-        url,
-      });
-
-      let firstChunk = true;
-
-      port.onMessage.addListener((msg) => {
-        if (msg.delta) {
-          if (firstChunk) {
-            firstChunk = false;
-          }
-          summaryBody.textContent += msg.delta;
-        } else if (msg.done) {
-          if (status) {
-            status.style.color = "#16a34a";
-            status.textContent = "AI 总结完成 ✓";
-          }
-          try {
-            port.disconnect();
-          } catch {}
-        } else if (msg.error) {
-          console.error("AI 流错误：", msg.error);
-          summaryBody.textContent = "AI 总结失败：" + msg.error;
-          if (status) {
-            status.style.color = "#dc2626";
-            status.textContent = "AI 总结失败：" + msg.error;
-          }
-          try {
-            port.disconnect();
-          } catch {}
-        }
-      });
-    });
-
-	
-	const aiTranslateBtn = document.createElement("button");
-    aiTranslateBtn.textContent = "AI翻译";
-    aiTranslateBtn.className = "ds-btn ds-btn-primary";
-    aiTranslateBtn.style.background = "#6366f1";
-    aiTranslateBtn.style.border = "none";
-    aiTranslateBtn.addEventListener("mouseenter", () => {
-      aiTranslateBtn.style.background = "#4f46e5";
-    });
-    aiTranslateBtn.addEventListener("mouseleave", () => {
-      aiTranslateBtn.style.background = "#6366f1";
-    });
-
-    aiTranslateBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      // 点击后直接进入翻译模式：关闭面板 + 出外框 + Esc 退出
-      startAutoTranslateMode();
-    });
-
-
-    btnWrap.appendChild(selectAreaBtn);
-    btnWrap.appendChild(aiSummaryBtn);
-	btnWrap.appendChild(aiTranslateBtn);
-	
-    box.appendChild(btnWrap);
-
-// ====== 结构化抽取区域：字段 JSON + 结果 JSON ======
-    const structTitle = document.createElement("div");
-    structTitle.style.fontSize = "13px";
-    structTitle.style.fontWeight = "600";
-    structTitle.style.margin = "8px 0 4px";
-    structTitle.textContent = "结构化抽取（选区 → 字段 → JSON）";
-    box.appendChild(structTitle);
-
-    const structHint = document.createElement("div");
-    structHint.style.fontSize = "11px";
-    structHint.style.color = "#6b7280";
-    structHint.style.marginBottom = "6px";
-    structHint.textContent =
-      "步骤：1) 点击“选择区域”选择 DOM；2) 可编辑上方选择器；3) AI 分析字段；4) 抽取 JSON；5) 上传结构化数据。";
-    box.appendChild(structHint);
-
-    // 按钮行：AI 分析字段 / 抽取数据 / 上传
-    const structBtnRow = document.createElement("div");
-    structBtnRow.className = "ds-row";
-    structBtnRow.style.marginBottom = "6px";
-
-    const aiFieldBtn = document.createElement("button");
+	 const aiFieldBtn = document.createElement("button");
     aiFieldBtn.className = "ds-btn ds-btn-outline";
     aiFieldBtn.textContent = "AI 分析可提取字段";
 
@@ -1834,10 +1833,18 @@ function getAllRuleSelectors(el, limit = 3000) {
     uploadStructBtn.className = "ds-btn ds-btn-primary";
     uploadStructBtn.textContent = "上传结构化数据";
 
-    structBtnRow.appendChild(aiFieldBtn);
-    structBtnRow.appendChild(extractBtn);
-    structBtnRow.appendChild(uploadStructBtn);
-    box.appendChild(structBtnRow);
+
+
+    btnWrap.appendChild(selectAreaBtn);
+    btnWrap.appendChild(aiFieldBtn);
+    btnWrap.appendChild(extractBtn);
+    btnWrap.appendChild(uploadStructBtn);
+	
+    box.appendChild(btnWrap);
+
+// ====== 结构化抽取区域：字段 JSON + 结果 JSON ======
+    
+
 
     // 字段配置 JSON 文本框
     const fieldLabel = document.createElement("div");
