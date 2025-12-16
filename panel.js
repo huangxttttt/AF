@@ -679,6 +679,73 @@
     return path.join(" > ");
   }
 
+
+function safeMatches(el, sel) {
+  try { return el.matches(sel); } catch { return false; }
+}
+
+function safeQueryCount(sel) {
+  try { return document.querySelectorAll(sel).length; } catch { return -1; }
+}
+
+// 收集所有样式表里的 selectorText（不筛选命中）
+// 同时标记：是否命中当前 el、命中数量（可选）
+function getAllRuleSelectors(el, limit = 3000) {
+  const seen = new Set();
+  const items = [];
+
+  const sheets = Array.from(document.styleSheets || []);
+  for (const sheet of sheets) {
+    let rules;
+    try {
+      rules = sheet.cssRules || sheet.rules;
+    } catch {
+      // 跨域 stylesheet 读 cssRules 会被拦截，跳过
+      continue;
+    }
+    if (!rules) continue;
+
+    for (const rule of Array.from(rules)) {
+      if (rule.type !== CSSRule.STYLE_RULE || !rule.selectorText) continue;
+
+      const parts = rule.selectorText
+        .split(",")
+        .map(s => s.trim())
+        .filter(Boolean);
+
+      for (const sel of parts) {
+        if (seen.has(sel)) continue;
+        seen.add(sel);
+
+        const matches = el ? safeMatches(el, sel) : false;
+        items.push({
+          selector: sel,
+          matches,
+          // 如果你觉得这里开销大，可以先不算 count，改成选中时再算
+          count: safeQueryCount(sel),
+        });
+
+        if (items.length >= limit) break;
+      }
+      if (items.length >= limit) break;
+    }
+    if (items.length >= limit) break;
+  }
+
+  // 排序策略：命中的在前；命中数量越接近 1 越靠前；再按长度
+  items.sort((a, b) => {
+    if (a.matches !== b.matches) return a.matches ? -1 : 1;
+
+    const ac = a.count < 0 ? 1e9 : Math.abs(a.count - 1);
+    const bc = b.count < 0 ? 1e9 : Math.abs(b.count - 1);
+    if (ac !== bc) return ac - bc;
+
+    return a.selector.length - b.selector.length;
+  });
+
+  return items;
+}
+
   // ================== 自动翻译：识别视口元素 & 队列 ==================
   function isElementInViewport(el, extra = 200) {
     const rect = el.getBoundingClientRect();
@@ -943,6 +1010,11 @@
     if (window.__panel_locator_input) {
       window.__panel_locator_input.value = locator;
     }
+		// 如果这个 selector 已经保存过，让下拉框自动定位到该规则
+	if (window.__ds_syncSavedRuleSelect) {
+	  window.__ds_syncSavedRuleSelect(locator);
+	}
+
 
     // 4）提示用户下一步动作
     const statusBar = document.getElementById("random-demo-status-bar");
@@ -1323,14 +1395,6 @@
 	aiBox.style.display = "none";
 	aiBox.style.padding = "10px 12px";
 
-	const aiTitle = document.createElement("div");
-	aiTitle.style.fontSize = "13px";
-	aiTitle.style.fontWeight = "600";
-	aiTitle.style.marginBottom = "8px";
-	aiTitle.textContent = "AI 工具";
-
-	aiBox.appendChild(aiTitle);
-	
 	const iframe = document.createElement("iframe");
 	iframe.src = "http://172.23.27.133:8680/dify/chatbot/qdG2XZJCVc4Ng7aE";
 	iframe.style.width = "100%";
@@ -1341,12 +1405,178 @@
 
 	aiBox.appendChild(iframe);
 		
-	const aiBtnWrap = document.createElement("div");
-	aiBtnWrap.className = "ds-row";
-	aiBtnWrap.style.flexWrap = "wrap";
-	aiBtnWrap.style.gap = "8px";
+	contentWrapper.appendChild(aiBox);
+	
+   
 
- const aiSummaryBtn = document.createElement("button");
+    // ========== Tab1：当前页 ==========
+    const box = document.createElement("div");
+    box.id = "random-demo-box";
+
+	
+    const textEl = document.createElement("div");
+    textEl.id = "random-demo-text";
+    box.appendChild(textEl);
+
+    // locator + 高亮 + 保存规则
+    const locatorWrap = document.createElement("div");
+    locatorWrap.className = "ds-row";
+
+    const locatorInput = document.createElement("input");
+    locatorInput.type = "text";
+    locatorInput.placeholder = "输入 CSS 选择器（locator）";
+    locatorInput.className = "ds-input";
+    locatorInput.style.flex = "1";
+	locatorInput.addEventListener("input", () => {
+	  if (window.__ds_syncSavedRuleSelect) {
+		window.__ds_syncSavedRuleSelect(locatorInput.value);
+	  }
+	});
+    const locatorBtn = document.createElement("button");
+    locatorBtn.textContent = "预览定位";
+    locatorBtn.className = "ds-btn ds-btn-outline";
+    locatorBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      highlightByLocator(locatorInput.value);
+    });
+
+    const saveRuleBtn = document.createElement("button");
+    saveRuleBtn.textContent = "保存规则";
+    saveRuleBtn.className = "ds-btn ds-btn-primary";
+    saveRuleBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const selector = (locatorInput.value || "").trim();
+      if (!selector) {
+        alert("请先输入或生成一个 CSS 选择器再保存规则。");
+        return;
+      }
+      const name = prompt("给这个采集规则起个名字：", selector);
+      if (!name) return;
+
+      chrome.storage.sync.get({ crawlRules: [] }, (res) => {
+        const rules = res.crawlRules || [];
+        rules.push({
+          id: Date.now().toString(),
+          name,
+          selector,
+        });
+        chrome.storage.sync.set({ crawlRules: rules }, () => {
+          alert("规则已保存，可在“自动巡检”页签中使用。");
+		   // 新增：保存后立刻刷新 Tab1 的规则下拉框，并选中当前 selector
+		  if (window.__ds_loadSavedRules) window.__ds_loadSavedRules();
+		  if (window.__ds_syncSavedRuleSelect) window.__ds_syncSavedRuleSelect(selector);
+        });
+      });
+    });
+
+    locatorWrap.appendChild(locatorInput);
+    locatorWrap.appendChild(locatorBtn);
+    locatorWrap.appendChild(saveRuleBtn);
+    box.appendChild(locatorWrap);
+
+
+    // 把 input 存到全局，方便别的函数使用
+    window.__panel_locator_input = locatorInput;
+	
+		// ====== 已保存规则（crawlRules）选择：不需要点“选择区域”也能回填 ======
+	const savedRuleRow = document.createElement("div");
+	savedRuleRow.className = "ds-row";
+	savedRuleRow.style.marginTop = "6px";
+
+	const savedRuleLabel = document.createElement("span");
+	savedRuleLabel.className = "ds-label";
+	savedRuleLabel.textContent = "已保存规则:";
+
+	const savedRuleSelect = document.createElement("select");
+	savedRuleSelect.className = "ds-select";
+
+	const reloadSavedRuleBtn = document.createElement("button");
+	reloadSavedRuleBtn.textContent = "刷新";
+	reloadSavedRuleBtn.className = "ds-btn ds-btn-outline";
+
+	let __savedRules = [];
+
+	function loadSavedRules() {
+	  chrome.storage.sync.get({ crawlRules: [] }, (res) => {
+		__savedRules = res.crawlRules || [];
+		savedRuleSelect.innerHTML = "";
+
+		const emptyOpt = document.createElement("option");
+		emptyOpt.value = "";
+		emptyOpt.textContent = "（选择一条规则回填 selector）";
+		savedRuleSelect.appendChild(emptyOpt);
+
+		__savedRules.forEach((r) => {
+		  const opt = document.createElement("option");
+		  // value 直接存 selector，选中就能回填
+		  opt.value = (r.selector || "").trim();
+		  opt.textContent = r.name || r.selector || "(未命名规则)";
+		  savedRuleSelect.appendChild(opt);
+		});
+	  });
+	}
+
+	// 根据当前输入框 selector，自动把下拉框定位到已保存的那条（如果存在）
+	function syncSavedRuleSelect(selector) {
+	  const s = (selector || "").trim();
+	  if (!s) {
+		savedRuleSelect.value = "";
+		return;
+	  }
+	  // 规则很多也没关系：直接用 value 匹配（value 就是 selector）
+	  savedRuleSelect.value = s;
+	  // 如果没有这条规则，value 会回落到空/不变，不影响使用
+	}
+
+	savedRuleSelect.addEventListener("change", (e) => {
+	  const v = (savedRuleSelect.value || "").trim();
+	  if (!v) return;
+
+	  if (window.__panel_locator_input) {
+		window.__panel_locator_input.value = v; // ✅ 直接回填输入框
+	  }
+
+	  // （可选）想要选完就预览定位，可以打开这行
+	  // highlightByLocator(v);
+	});
+
+	reloadSavedRuleBtn.addEventListener("click", (e) => {
+	  e.stopPropagation();
+	  loadSavedRules();
+	});
+
+	savedRuleRow.appendChild(savedRuleLabel);
+	savedRuleRow.appendChild(savedRuleSelect);
+	savedRuleRow.appendChild(reloadSavedRuleBtn);
+	box.appendChild(savedRuleRow);
+
+	// 暴露给“选择区域”回填后自动同步
+	window.__ds_loadSavedRules = loadSavedRules;
+	window.__ds_syncSavedRuleSelect = syncSavedRuleSelect;
+
+	// 初始化加载一次
+	loadSavedRules();
+
+
+    // 按钮区域
+    const btnWrap = document.createElement("div");
+    btnWrap.className = "ds-row";
+    btnWrap.style.flexWrap = "wrap";
+    btnWrap.style.justifyContent = "flex-start";
+    btnWrap.style.alignItems = "flex-start";
+
+
+
+    const selectAreaBtn = document.createElement("button");
+    selectAreaBtn.textContent = "选择区域";
+    selectAreaBtn.className = "ds-btn ds-btn-primary";
+    selectAreaBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      startSelectionMode();
+    });
+
+   
+    const aiSummaryBtn = document.createElement("button");
     aiSummaryBtn.textContent = "AI总结本页";
     aiSummaryBtn.className = "ds-btn ds-btn-primary";
     aiSummaryBtn.style.background = "#10b981";
@@ -1439,95 +1669,11 @@
       startAutoTranslateMode();
     });
 
-	aiBtnWrap.appendChild(aiSummaryBtn);
-	aiBtnWrap.appendChild(aiTranslateBtn);
-
-	aiBox.appendChild(aiBtnWrap);
-	contentWrapper.appendChild(aiBox);
-
-
-    // ========== Tab1：当前页 ==========
-    const box = document.createElement("div");
-    box.id = "random-demo-box";
-
-    const textEl = document.createElement("div");
-    textEl.id = "random-demo-text";
-    box.appendChild(textEl);
-
-    // locator + 高亮 + 保存规则
-    const locatorWrap = document.createElement("div");
-    locatorWrap.className = "ds-row";
-
-    const locatorInput = document.createElement("input");
-    locatorInput.type = "text";
-    locatorInput.placeholder = "输入 CSS 选择器（locator）";
-    locatorInput.className = "ds-input";
-    locatorInput.style.flex = "1";
-
-    const locatorBtn = document.createElement("button");
-    locatorBtn.textContent = "预览定位";
-    locatorBtn.className = "ds-btn ds-btn-outline";
-    locatorBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      highlightByLocator(locatorInput.value);
-    });
-
-    const saveRuleBtn = document.createElement("button");
-    saveRuleBtn.textContent = "保存规则";
-    saveRuleBtn.className = "ds-btn ds-btn-primary";
-    saveRuleBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const selector = (locatorInput.value || "").trim();
-      if (!selector) {
-        alert("请先输入或生成一个 CSS 选择器再保存规则。");
-        return;
-      }
-      const name = prompt("给这个采集规则起个名字：", selector);
-      if (!name) return;
-
-      chrome.storage.sync.get({ crawlRules: [] }, (res) => {
-        const rules = res.crawlRules || [];
-        rules.push({
-          id: Date.now().toString(),
-          name,
-          selector,
-        });
-        chrome.storage.sync.set({ crawlRules: rules }, () => {
-          alert("规则已保存，可在“自动巡检”页签中使用。");
-        });
-      });
-    });
-
-    locatorWrap.appendChild(locatorInput);
-    locatorWrap.appendChild(locatorBtn);
-    locatorWrap.appendChild(saveRuleBtn);
-    box.appendChild(locatorWrap);
-
-    // 把 input 存到全局，方便别的函数使用
-    window.__panel_locator_input = locatorInput;
-
-    // 按钮区域（上传整页 / 选择区域 / AI总结）
-    const btnWrap = document.createElement("div");
-    btnWrap.className = "ds-row";
-    btnWrap.style.flexWrap = "wrap";
-    btnWrap.style.justifyContent = "flex-start";
-    btnWrap.style.alignItems = "flex-start";
-
-
-
-    const selectAreaBtn = document.createElement("button");
-    selectAreaBtn.textContent = "选择区域";
-    selectAreaBtn.className = "ds-btn ds-btn-primary";
-    selectAreaBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      startSelectionMode();
-    });
-
-   
-
 
     btnWrap.appendChild(selectAreaBtn);
-  
+    btnWrap.appendChild(aiSummaryBtn);
+	btnWrap.appendChild(aiTranslateBtn);
+	
     box.appendChild(btnWrap);
 
 // ====== 结构化抽取区域：字段 JSON + 结果 JSON ======
@@ -1543,7 +1689,7 @@
     structHint.style.color = "#6b7280";
     structHint.style.marginBottom = "6px";
     structHint.textContent =
-      "步骤：1) 点击“上传所选区域”选择 DOM；2) 可编辑上方选择器；3) AI 分析字段；4) 抽取 JSON；5) 上传结构化数据。";
+      "步骤：1) 点击“选择区域”选择 DOM；2) 可编辑上方选择器；3) AI 分析字段；4) 抽取 JSON；5) 上传结构化数据。";
     box.appendChild(structHint);
 
     // 按钮行：AI 分析字段 / 抽取数据 / 上传
@@ -1606,7 +1752,7 @@
       e.stopPropagation();
 
       if (!structuredRegion) {
-        alert("请先点击“上传所选区域”，在页面中选择一个区域。");
+        alert("请先点击“区域选择”，在页面中选择一个区域。");
         return;
       }
 
