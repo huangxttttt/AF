@@ -249,6 +249,8 @@ async function callDeepseekExtractStructuredList(text, url, fields) {
 - 永远输出 JSON 数组（即使只有 1 条记录，也要用 [ { ... } ] 包裹）
 - 数组内每个元素都是一条记录对象
 - key 必须严格使用字段的 name；缺失字段用 null
+- 输入可能包含 HTML，请同时利用标签属性（如 a[href]、img[src]）
+- 链接字段优先取 href；图片字段优先取 img 的 src
 - 不要输出字段列表之外的字段
 - 只输出 JSON，不要任何说明文字
 `.trim(),

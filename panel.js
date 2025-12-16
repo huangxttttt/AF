@@ -544,25 +544,28 @@
 }
 
 
-// 把很多节点的文本拆成多个 chunk，避免一次发太大导致超时/断连
-  function buildChunksFromNodes(nodes, maxChars = 6000, maxItems = 25) {
+// 把很多节点的内容拆成多个 chunk —— 改成包含 outerHTML，保留 href/src
+function buildChunksFromNodes(nodes, maxChars = 6000, maxItems = 25) {
   const chunks = [];
   let buf = [];
   let len = 0;
 
   for (const el of nodes) {
-    const t = (el.innerText || el.textContent || "").trim();
-    if (!t) continue;
+    const html = (el.outerHTML || "").trim();
+    const text = ((el.innerText || el.textContent || "")).trim();
+    if (!html && !text) continue;
 
-    // 估算本条加入后的长度（包含分隔符）
-    const extra = (buf.length ? "\n====================\n" : "") + t;
+    // 推荐：HTML 为主，文本为辅（方便模型理解）
+    const payload = `HTML:\n${html}\n\nTEXT:\n${text}`;
+
+    const extra = (buf.length ? "\n====================\n" : "") + payload;
 
     if (buf.length >= maxItems || len + extra.length > maxChars) {
       if (buf.length) chunks.push(buf.join("\n====================\n"));
-      buf = [t];
-      len = t.length;
+      buf = [payload];
+      len = payload.length;
     } else {
-      buf.push(t);
+      buf.push(payload);
       len += extra.length;
     }
   }
