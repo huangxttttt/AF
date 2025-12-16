@@ -490,6 +490,8 @@
     );
   }
   
+  
+  
 // 根据 locator 返回更“聪明”的节点列表：
 // 1. 先用 locator 本身匹配；
 // 2. 如果只匹配到 1 个元素，尝试把它当容器，取它的直接子元素作为列表项。
@@ -575,19 +577,110 @@ function buildChunksFromNodes(nodes, maxChars = 6000, maxItems = 25) {
 }
 
 
-  // ================== 工具函数：显示文本区域 ==================
-  function showTextInPanel(text) {
-    const box = document.getElementById("random-demo-box");
-    if (!box) return;
+  // ================== 预览弹窗（替代 random-demo-body-pre） ==================
+let __dsPreviewState = { title: "预览", text: "" };
 
-    let pre = document.getElementById("random-demo-body-pre");
-    if (!pre) {
-      pre = document.createElement("pre");
-      pre.id = "random-demo-body-pre";
-      box.appendChild(pre);
-    }
-    pre.textContent = text;
-  }
+function ensurePreviewModal() {
+  let modal = document.getElementById("__ds_preview_modal");
+  if (modal) return modal;
+
+  const overlay = document.createElement("div");
+  overlay.id = "__ds_preview_modal";
+  overlay.style.position = "fixed";
+  overlay.style.inset = "0";
+  overlay.style.zIndex = "999999";
+  overlay.style.background = "rgba(15, 23, 42, 0.55)";
+  overlay.style.display = "none";
+  overlay.style.alignItems = "center";
+  overlay.style.justifyContent = "center";
+  overlay.addEventListener("click", (e) => {
+    if (e.target === overlay) overlay.style.display = "none";
+  });
+
+  const card = document.createElement("div");
+  card.style.width = "min(920px, calc(100vw - 40px))";
+  card.style.maxHeight = "min(80vh, 720px)";
+  card.style.background = "#fff";
+  card.style.borderRadius = "14px";
+  card.style.boxShadow = "0 20px 60px rgba(0,0,0,0.25)";
+  card.style.display = "flex";
+  card.style.flexDirection = "column";
+  card.style.overflow = "hidden";
+
+  const header = document.createElement("div");
+  header.style.display = "flex";
+  header.style.alignItems = "center";
+  header.style.justifyContent = "space-between";
+  header.style.padding = "10px 12px";
+  header.style.borderBottom = "1px solid rgba(0,0,0,0.08)";
+
+  const title = document.createElement("div");
+  title.id = "__ds_preview_title";
+  title.style.fontWeight = "600";
+  title.style.fontSize = "13px";
+  title.textContent = __dsPreviewState.title;
+
+  const actions = document.createElement("div");
+  actions.style.display = "flex";
+  actions.style.gap = "8px";
+
+  const copyBtn = document.createElement("button");
+  copyBtn.className = "ds-btn ds-btn-outline ds-btn-pill-small";
+  copyBtn.textContent = "复制";
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(__dsPreviewState.text || "");
+    } catch {}
+  });
+
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "ds-btn ds-btn-outline ds-btn-pill-small";
+  closeBtn.textContent = "关闭";
+  closeBtn.addEventListener("click", () => {
+    overlay.style.display = "none";
+  });
+
+  actions.appendChild(copyBtn);
+  actions.appendChild(closeBtn);
+
+  const pre = document.createElement("pre");
+  pre.id = "__ds_preview_pre";
+  pre.style.margin = "0";
+  pre.style.padding = "12px";
+  pre.style.overflow = "auto";
+  pre.style.whiteSpace = "pre-wrap";
+  pre.style.wordBreak = "break-word";
+  pre.style.fontSize = "12px";
+  pre.style.lineHeight = "1.6";
+  pre.style.background = "rgba(15, 23, 42, 0.03)";
+
+  header.appendChild(title);
+  header.appendChild(actions);
+
+  card.appendChild(header);
+  card.appendChild(pre);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+
+  return overlay;
+}
+
+// 只缓存，不弹窗
+function cachePreview(text, title = "预览") {
+  __dsPreviewState = { title, text: String(text || "") };
+}
+
+// 弹窗预览（原 showTextInPanel 的“显示”语义）
+function showTextInPanel(text, title = "预览") {
+  cachePreview(text, title);
+  const overlay = ensurePreviewModal();
+  const titleEl = overlay.querySelector("#__ds_preview_title");
+  const preEl = overlay.querySelector("#__ds_preview_pre");
+  if (titleEl) titleEl.textContent = __dsPreviewState.title;
+  if (preEl) preEl.textContent = __dsPreviewState.text;
+  overlay.style.display = "flex";
+}
+
   
     // ================== 页面头部总结卡片 ==================
   function getOrCreatePageSummaryBody() {
@@ -1007,7 +1100,7 @@ function getAllRuleSelectors(el, limit = 3000) {
     };
 
     // 2）预览选中区域 HTML
-    showTextInPanel(html);
+    cachePreview(html, "选区 HTML（点击 👁 预览）");
 
     // 3）自动写入 locator 输入框
     if (window.__panel_locator_input) {
@@ -1143,7 +1236,8 @@ function getAllRuleSelectors(el, limit = 3000) {
     };
 
     // 预览 HTML
-    showTextInPanel(html);
+    cachePreview(html, "定位命中 HTML（点击 👁 预览）");
+
 
     const statusBar = document.getElementById("random-demo-status-bar");
     if (statusBar) {
@@ -1255,7 +1349,7 @@ function getAllRuleSelectors(el, limit = 3000) {
       actions.style.gap = "4px";
 
       const viewBtn = document.createElement("button");
-      viewBtn.textContent = "查看结构数据";
+      viewBtn.textContent = "👁";
       viewBtn.className = "ds-btn ds-btn-outline ds-btn-pill-small";
 
       const uploadBtn = document.createElement("button");
@@ -1270,13 +1364,15 @@ function getAllRuleSelectors(el, limit = 3000) {
             alert("当前页没有符合条件的图片。");
             return;
           }
-          showTextInPanel(JSON.stringify(detectedImages, null, 2));
+          showTextInPanel(JSON.stringify(detectedImages, null, 2), "结构数据预览：图片");
+
         } else {
           if (!detectedTables.length) {
             alert("当前页没有表格。");
             return;
           }
-          showTextInPanel(JSON.stringify(detectedTables, null, 2));
+          showTextInPanel(JSON.stringify(detectedImages, null, 2), "结构数据预览：表格");
+
         }
         uploadBtn.style.display = "inline-flex";
       });
@@ -1472,8 +1568,24 @@ function getAllRuleSelectors(el, limit = 3000) {
       });
     });
 
+	const previewAreaBtn = document.createElement("button");
+	previewAreaBtn.textContent = "👁";
+	previewAreaBtn.className = "ds-btn ds-btn-outline ds-btn-pill-small";
+
+	previewAreaBtn.addEventListener("click", (e) => {
+	  e.stopPropagation();
+
+	  // 优先用当前选区；没有选区就用最近一次 cachePreview 的内容
+	  const html = (structuredRegion && structuredRegion.html) ? structuredRegion.html : (__dsPreviewState.text || "");
+	  if (!html) {
+		alert("还没有可预览的内容：请先“选择区域”或“预览定位”。");
+		return;
+	  }
+	  showTextInPanel(html, "选区预览");
+	});
     locatorWrap.appendChild(locatorInput);
     locatorWrap.appendChild(locatorBtn);
+    locatorWrap.appendChild(previewAreaBtn);
     locatorWrap.appendChild(saveRuleBtn);
     box.appendChild(locatorWrap);
 
@@ -1577,6 +1689,8 @@ function getAllRuleSelectors(el, limit = 3000) {
       e.stopPropagation();
       startSelectionMode();
     });
+
+	
 
    
     const aiSummaryBtn = document.createElement("button");
@@ -1802,6 +1916,7 @@ function getAllRuleSelectors(el, limit = 3000) {
         statusBar.textContent = "AI 正在分析可提取字段…";
       }
 
+      console.log(sampleText)
       chrome.runtime.sendMessage(
         {
           type: "AI_SUGGEST_FIELDS",
