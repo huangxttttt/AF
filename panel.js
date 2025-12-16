@@ -2158,6 +2158,14 @@ function getAllRuleSelectors(el, limit = 3000) {
 
    // tab 切换（支持 main / ai / extra）
 function switchTab(tabName) {
+	
+	// ✅ 切换页签时：清空底部消息提示
+	const statusBar = document.getElementById("random-demo-status-bar");
+	if (statusBar) {
+	  statusBar.textContent = "";
+	  statusBar.style.color = "#6b7280";
+	}
+
   const mainBox = document.getElementById("random-demo-box");
   const aiBox = document.getElementById("random-demo-box-ai");
   const extraBox = document.getElementById("random-demo-box-extra");
